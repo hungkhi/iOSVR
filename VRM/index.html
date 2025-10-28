@@ -1,0 +1,697 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <meta charset="utf-8" />
+        <title>Random VRM Model & Animation Viewer</title>
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no"
+        />
+        <style>
+body {
+    height: 100vh;
+    padding-top: 100px;
+    background-color: rgb(134, 8, 8);
+    background-image: url('https://rapi.pixai.art/img/media/385807152149452857/thumbnail');
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+    /* background-attachment: fixed; */
+}
+
+canvas {
+    display: block;
+}
+
+#divInfo {
+    padding: 12px;
+    position: fixed;
+    background: rgba(255, 255, 255, 0.95);
+    border-radius: 8px;
+    margin: 10px;
+    box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+    font-family: Arial, sans-serif;
+    z-index: 1000;
+    display: none;
+}
+
+#currentFiles {
+    margin-top: 10px;
+    padding-top: 10px;
+    border-top: 1px solid #ccc;
+    font-size: 14px;
+}
+
+.file-info {
+    margin: 5px 0;
+    color: #555;
+}
+
+.file-name {
+    font-weight: bold;
+    color: #333;
+}
+
+#reloadBtn, #nextAnimBtn {
+    padding: 8px 16px;
+    background: #667eea;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 14px;
+    transition: background 0.3s ease;
+}
+
+#reloadBtn:hover, #nextAnimBtn:hover {
+    background: #5a67d8;
+}
+
+#nextAnimBtn {
+    background: #48bb78;
+}
+
+#nextAnimBtn:hover {
+    background: #38a169;
+}
+
+#reloadBtn:disabled, #nextAnimBtn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+#nextAnimBtn:disabled:hover {
+    background: #48bb78;
+}
+
+.lil-gui {
+    display: none !important;
+}
+        </style>
+    </head>
+
+    <body>
+        <div id="divInfo">
+            <strong>Random VRM & Animation Loader</strong><br>
+            <span style="font-size: 12px; color: #666;">Drag and drop to override</span>
+            <div id="currentFiles">
+                <div class="file-info">Model: <span id="currentModel" class="file-name">Loading...</span></div>
+                <div class="file-info">Animation: <span id="currentAnimation" class="file-name">Loading...</span></div>
+            </div>
+            <div style="display: flex; gap: 8px; margin-top: 10px;">
+                <button id="reloadBtn" onclick="loadRandomFiles()">Load New Random</button>
+                <button id="nextAnimBtn" onclick="loadNextAnimation()">Next Animation</button>
+            </div>
+        </div>
+
+        <script type="importmap">
+            {
+                "imports": {
+                    "three": "https://cdn.jsdelivr.net/npm/three@0.177.0/build/three.module.js",
+                    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.177.0/examples/jsm/",
+                    "@pixiv/three-vrm": "https://cdn.jsdelivr.net/npm/@pixiv/three-vrm@3/lib/three-vrm.module.min.js"
+                }
+            }
+        </script>
+
+        <script type="module">
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { VRMLoaderPlugin, VRMUtils } from '@pixiv/three-vrm';
+import GUI from 'three/addons/libs/lil-gui.module.min.js';
+
+// === Inlined from config.js ===
+const mixamoVRMRigMap = {"mixamorigHips":"hips","mixamorigSpine":"spine","mixamorigSpine1":"chest","mixamorigSpine2":"upperChest","mixamorigNeck":"neck","mixamorigHead":"head","mixamorigLeftShoulder":"leftShoulder","mixamorigLeftArm":"leftUpperArm","mixamorigLeftForeArm":"leftLowerArm","mixamorigLeftHand":"leftHand","mixamorigLeftHandThumb1":"leftThumbMetacarpal","mixamorigLeftHandThumb2":"leftThumbProximal","mixamorigLeftHandThumb3":"leftThumbDistal","mixamorigLeftHandIndex1":"leftIndexProximal","mixamorigLeftHandIndex2":"leftIndexIntermediate","mixamorigLeftHandIndex3":"leftIndexDistal","mixamorigLeftHandMiddle1":"leftMiddleProximal","mixamorigLeftHandMiddle2":"leftMiddleIntermediate","mixamorigLeftHandMiddle3":"leftMiddleDistal","mixamorigLeftHandRing1":"leftRingProximal","mixamorigLeftHandRing2":"leftRingIntermediate","mixamorigLeftHandRing3":"leftRingDistal","mixamorigLeftHandPinky1":"leftLittleProximal","mixamorigLeftHandPinky2":"leftLittleIntermediate","mixamorigLeftHandPinky3":"leftLittleDistal","mixamorigRightShoulder":"rightShoulder","mixamorigRightArm":"rightUpperArm","mixamorigRightForeArm":"rightLowerArm","mixamorigRightHand":"rightHand","mixamorigRightHandThumb1":"rightThumbMetacarpal","mixamorigRightHandThumb2":"rightThumbProximal","mixamorigRightHandThumb3":"rightThumbDistal","mixamorigRightHandIndex1":"rightIndexProximal","mixamorigRightHandIndex2":"rightIndexIntermediate","mixamorigRightHandIndex3":"rightIndexDistal","mixamorigRightHandMiddle1":"rightMiddleProximal","mixamorigRightHandMiddle2":"rightMiddleIntermediate","mixamorigRightHandMiddle3":"rightMiddleDistal","mixamorigRightHandRing1":"rightRingProximal","mixamorigRightHandRing2":"rightRingIntermediate","mixamorigRightHandRing3":"rightRingDistal","mixamorigRightHandPinky1":"rightLittleProximal","mixamorigRightHandPinky2":"rightLittleIntermediate","mixamorigRightHandPinky3":"rightLittleDistal","mixamorigLeftUpLeg":"leftUpperLeg","mixamorigLeftLeg":"leftLowerLeg","mixamorigLeftFoot":"leftFoot","mixamorigLeftToeBase":"leftToes","mixamorigRightUpLeg":"rightUpperLeg","mixamorigRightLeg":"rightLowerLeg","mixamorigRightFoot":"rightFoot","mixamorigRightToeBase":"rightToes"};
+const genericVRMRigMap = {"Hips":"hips","Spine":"spine","Chest":"chest","UpperChest":"upperChest","Neck":"neck","Head":"head","LeftShoulder":"leftShoulder","LeftUpperArm":"leftUpperArm","LeftLowerArm":"leftLowerArm","LeftHand":"leftHand","RightShoulder":"rightShoulder","RightUpperArm":"rightUpperArm","RightLowerArm":"rightLowerArm","RightHand":"rightHand","LeftUpperLeg":"leftUpperLeg","LeftLowerLeg":"leftLowerLeg","LeftFoot":"leftFoot","LeftToes":"leftToes","RightUpperLeg":"rightUpperLeg","RightLowerLeg":"rightLowerLeg","RightFoot":"rightFoot","RightToes":"rightToes","hips":"hips","spine":"spine","chest":"chest","upper_chest":"upperChest","neck":"neck","head":"head","shoulder.L":"leftShoulder","upper_arm.L":"leftUpperArm","forearm.L":"leftLowerArm","hand.L":"leftHand","shoulder.R":"rightShoulder","upper_arm.R":"rightUpperArm","forearm.R":"rightLowerArm","hand.R":"rightHand","thigh.L":"leftUpperLeg","shin.L":"leftLowerLeg","foot.L":"leftFoot","toe.L":"leftToes","thigh.R":"rightUpperLeg","shin.R":"rightLowerLeg","foot.R":"rightFoot","toe.R":"rightToes"};
+const combinedRigMap = { ...genericVRMRigMap, ...mixamoVRMRigMap };
+const vrmFiles = ["0001_01 2.vrm","0001_01 3.vrm","0001_02 2.vrm","0001_02 3.vrm","0001_02.vrm","0001_03 2.vrm","0001_03.vrm","0001_04 2.vrm","0001_04.vrm","0001_05 2.vrm","0001_05.vrm","0001_06 2.vrm","0001_06.vrm","0001_07 2.vrm","0001_07 3.vrm","0001_07.vrm 2","0001_07.vrm","0001_08 2.vrm","0001_08 3.vrm","0001_08.vrm 2","0001_08.vrm","0001_09 2.vrm","0001_09.vrm","0001_10.vrm"];
+const fbxFiles = ["Angry.fbx","Bashful.fbx","Blow A Kiss.fbx","Booty Hip Hop Dance.fbx","Burpee.fbx","Chicken Dance.fbx","Circle Crunch.fbx","Cross Jumps.fbx","Hand Raising.fbx","Happy.fbx","Hip Hop Dancing.fbx","Idle Stand.fbx","Jumping Jacks.fbx","Quick Steps.fbx","Rumba Dancing.fbx","Snake Hip Hop Dance.fbx","Standing Arguing.fbx","Standing Greeting.fbx","Step Hip Hop Dance.fbx","Talking.fbx","Taunt.fbx","Thinking.fbx","Threatening.fbx"];
+const VRM_BASE_URL = 'https://n6n.top/Model/';
+const FBX_BASE_URL = 'https://n6n.top/Anim/';
+const namePatterns = {hips:/hip/i,spine:/spine/i,chest:/chest|spine1/i,upperChest:/upperchest|spine2/i,neck:/neck/i,head:/head/i,leftShoulder:/l(eft)?[-_\s]?shoulder/i,leftUpperArm:/l(eft)?[-_\s]?(upper)?[-_\s]?arm/i,leftLowerArm:/l(eft)?[-_\s]?(lower|fore)[-_\s]?arm/i,leftHand:/l(eft)?[-_\s]?hand/i,rightShoulder:/r(ight)?[-_\s]?shoulder/i,rightUpperArm:/r(ight)?[-_\s]?(upper)?[-_\s]?arm/i,rightLowerArm:/r(ight)?[-_\s]?(lower|fore)[-_\s]?arm/i,rightHand:/r(ight)?[-_\s]?hand/i,leftUpperLeg:/l(eft)?[-_\s]?(upper|up)[-_\s]?leg|l(eft)?[-_\s]?thigh/i,leftLowerLeg:/l(eft)?[-_\s]?(lower)?[-_\s]?leg|l(eft)?[-_\s]?(shin|calf)/i,leftFoot:/l(eft)?[-_\s]?foot/i,leftToes:/l(eft)?[-_\s]?(toe|toebase)/i,rightUpperLeg:/r(ight)?[-_\s]?(upper|up)[-_\s]?leg|r(ight)?[-_\s]?thigh/i,rightLowerLeg:/r(ight)?[-_\s]?(lower)?[-_\s]?leg|r(ight)?[-_\s]?(shin|calf)/i,rightFoot:/r(ight)?[-_\s]?foot/i,rightToes:/r(ight)?[-_\s]?(toe|toebase)/i};
+// === End inlined config ===
+
+// === Background preloading and cache ===
+const modelObjectURLCache = new Map(); // name -> Promise<objectURL>
+const animObjectURLCache = new Map();  // name -> Promise<objectURL>
+let preloadingStarted = false;
+
+function fetchAndCacheObjectURL(name, baseUrl, cacheMap) {
+    if (cacheMap.has(name)) return cacheMap.get(name);
+    const url = baseUrl + encodeURIComponent(name);
+    const promise = fetch(url, { mode: 'cors' })
+        .then(r => {
+            if (!r.ok) throw new Error('HTTP ' + r.status + ' for ' + name);
+            return r.blob();
+        })
+        .then(blob => URL.createObjectURL(blob))
+        .catch(err => {
+            console.warn('Preload failed for', name, err);
+            // Remove failed entry so we can retry later
+            cacheMap.delete(name);
+            throw err;
+        });
+    cacheMap.set(name, promise);
+    return promise;
+}
+
+async function withConcurrency(names, worker, concurrency = 3) {
+    const queue = names.slice();
+    const running = [];
+    const results = [];
+    while (queue.length > 0 || running.length > 0) {
+        while (running.length < concurrency && queue.length > 0) {
+            const name = queue.shift();
+            const p = Promise.resolve().then(() => worker(name))
+                .then(res => ({ status: 'fulfilled', value: res, name }))
+                .catch(err => ({ status: 'rejected', reason: err, name }));
+            running.push(p);
+        }
+        const settled = await Promise.race(running.map((p, i) => p.then(v => ({ v, i }))));
+        running.splice(settled.i, 1);
+        results.push(settled.v);
+    }
+    return results;
+}
+
+async function startBackgroundPreloading(excludeModelName = null, excludeAnimationName = null) {
+    if (preloadingStarted) return;
+    preloadingStarted = true;
+    try {
+        const modelNames = vrmFiles.filter(n => n !== excludeModelName);
+        const animNames = fbxFiles.filter(n => n !== excludeAnimationName);
+        // Kick off both in parallel
+        await Promise.all([
+            withConcurrency(modelNames, (name) => fetchAndCacheObjectURL(name, VRM_BASE_URL, modelObjectURLCache), 2),
+            withConcurrency(animNames, (name) => fetchAndCacheObjectURL(name, FBX_BASE_URL, animObjectURLCache), 3)
+        ]);
+        console.log('✅ Background preloading completed');
+    } catch (e) {
+        console.warn('Background preloading finished with some errors');
+    }
+}
+
+async function getModelURL(name) {
+    if (!name) return null;
+    if (modelObjectURLCache.has(name)) {
+        try { return await modelObjectURLCache.get(name); } catch { /* fallthrough */ }
+    }
+    // If not cached, return remote URL and also start caching in background
+    const remote = VRM_BASE_URL + encodeURIComponent(name);
+    fetchAndCacheObjectURL(name, VRM_BASE_URL, modelObjectURLCache);
+    return remote;
+}
+
+async function getAnimationURL(name) {
+    if (!name) return null;
+    if (animObjectURLCache.has(name)) {
+        try { return await animObjectURLCache.get(name); } catch { /* fallthrough */ }
+    }
+    const remote = FBX_BASE_URL + encodeURIComponent(name);
+    fetchAndCacheObjectURL(name, FBX_BASE_URL, animObjectURLCache);
+    return remote;
+}
+
+function safeFileNameFromUrl(url) {
+    try {
+        // Handle blob: URLs and http(s): URLs
+        if (!url) return null;
+        const last = url.split('/').pop() || '';
+        try { return decodeURIComponent(last); } catch { return last; }
+    } catch {
+        return null;
+    }
+}
+
+function findBoneMapping(boneName) {
+    if (combinedRigMap[boneName]) {
+        return combinedRigMap[boneName];
+    }
+    const lowerName = boneName.toLowerCase();
+    for (const [key, value] of Object.entries(combinedRigMap)) {
+        if (key.toLowerCase() === lowerName) {
+            return value;
+        }
+    }
+    for (const [vrmBone, pattern] of Object.entries(namePatterns)) {
+        if (pattern.test(boneName)) {
+            return vrmBone;
+        }
+    }
+    return null;
+}
+
+function loadHumanoidAnimation( url, vrm ) {
+    const loader = new FBXLoader();
+    loader.crossOrigin = 'anonymous';
+    return loader.loadAsync( url ).then( ( asset ) => {
+        let clip = THREE.AnimationClip.findByName( asset.animations, 'mixamo.com' );
+        if (!clip && asset.animations.length > 0) {
+            clip = asset.animations[0];
+        }
+        if (!clip) {
+            throw new Error('No animation found in FBX file');
+        }
+        const tracks = [];
+        const restRotationInverse = new THREE.Quaternion();
+        const parentRestWorldRotation = new THREE.Quaternion();
+        const _quatA = new THREE.Quaternion();
+        const _vec3 = new THREE.Vector3();
+        let hipsNode = null;
+        asset.traverse((node) => {
+            if (!hipsNode) {
+                const vrmBoneName = findBoneMapping(node.name);
+                if (vrmBoneName === 'hips') {
+                    hipsNode = node;
+                }
+            }
+        });
+        let hipsPositionScale = 1.0;
+        if (hipsNode) {
+            const motionHipsHeight = hipsNode.position.y;
+            const vrmHipsY = vrm.humanoid?.getNormalizedBoneNode( 'hips' )?.getWorldPosition( _vec3 ).y || 1;
+            const vrmRootY = vrm.scene.getWorldPosition( _vec3 ).y;
+            const vrmHipsHeight = Math.abs( vrmHipsY - vrmRootY );
+            if (motionHipsHeight > 0) {
+                hipsPositionScale = vrmHipsHeight / motionHipsHeight;
+            }
+        }
+        clip.tracks.forEach( ( track ) => {
+            const trackSplitted = track.name.split( '.' );
+            const rigBoneName = trackSplitted[ 0 ];
+            const vrmBoneName = findBoneMapping( rigBoneName );
+            if (!vrmBoneName) {
+                return;
+            }
+            const vrmNodeName = vrm.humanoid?.getNormalizedBoneNode( vrmBoneName )?.name;
+            const rigNode = asset.getObjectByName( rigBoneName );
+            if ( vrmNodeName != null && rigNode ) {
+                const propertyName = trackSplitted[ 1 ];
+                rigNode.getWorldQuaternion( restRotationInverse ).invert();
+                rigNode.parent.getWorldQuaternion( parentRestWorldRotation );
+                if ( track instanceof THREE.QuaternionKeyframeTrack ) {
+                    for ( let i = 0; i < track.values.length; i += 4 ) {
+                        const flatQuaternion = track.values.slice( i, i + 4 );
+                        _quatA.fromArray( flatQuaternion );
+                        _quatA.premultiply( parentRestWorldRotation ).multiply( restRotationInverse );
+                        _quatA.toArray( flatQuaternion );
+                        flatQuaternion.forEach( ( v, index ) => {
+                            track.values[ index + i ] = v;
+                        } );
+                    }
+                    tracks.push(
+                        new THREE.QuaternionKeyframeTrack(
+                            `${ vrmNodeName }.${ propertyName }`,
+                            track.times,
+                            track.values.map( ( v, i ) => ( vrm.meta?.metaVersion === '0' && i % 2 === 0 ? - v : v ) ),
+                        ),
+                    );
+                } else if ( track instanceof THREE.VectorKeyframeTrack ) {
+                    const value = track.values.map( ( v, i ) => ( vrm.meta?.metaVersion === '0' && i % 3 !== 1 ? - v : v ) * hipsPositionScale );
+                    tracks.push( new THREE.VectorKeyframeTrack( `${ vrmNodeName }.${ propertyName }`, track.times, value ) );
+                }
+            }
+        } );
+        return new THREE.AnimationClip( 'vrmAnimation', clip.duration, tracks );
+    } );
+}
+
+const renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+renderer.setSize( window.innerWidth, window.innerHeight );
+renderer.setPixelRatio( window.devicePixelRatio );
+renderer.setClearColor( 0x000000, 0 );
+document.body.appendChild( renderer.domElement );
+
+const camera = new THREE.PerspectiveCamera( 30.0, window.innerWidth / window.innerHeight, 0.1, 20.0 );
+camera.position.set( 0.0, 1.0, 5.0 );
+
+const controls = new OrbitControls( camera, renderer.domElement );
+controls.screenSpacePanning = true;
+controls.target.set( 0.0, 1.0, 0.0 );
+controls.update();
+controls.enabled = false;
+
+const scene = new THREE.Scene();
+
+// Transparent background for embedding
+scene.background = null;
+
+const light = new THREE.DirectionalLight( 0xffffff, Math.PI );
+light.position.set( 1.0, 1.0, 1.0 ).normalize();
+scene.add( light );
+
+const ambientLight = new THREE.AmbientLight(0xffffff, 0.4);
+scene.add(ambientLight);
+
+let currentVrm = undefined;
+let currentAnimationUrl = undefined;
+let currentMixer = undefined;
+let currentAction = undefined;
+let lastUsedAnimationIndex = -1;
+let blinkInterval = undefined;
+
+const helperRoot = new THREE.Group();
+helperRoot.renderOrder = 10000;
+helperRoot.visible = false;
+scene.add( helperRoot );
+
+function getRandomItem(array) {
+    if (!array || array.length === 0) return null;
+    return array[Math.floor(Math.random() * array.length)];
+}
+
+function getNextAnimation() {
+    if (!fbxFiles || fbxFiles.length === 0) return null;
+    let attempts = 0;
+    let randomIndex;
+    let randomFBX;
+    do {
+        randomIndex = Math.floor(Math.random() * fbxFiles.length);
+        randomFBX = fbxFiles[randomIndex];
+        attempts++;
+    } while (randomIndex === lastUsedAnimationIndex && attempts < 10 && fbxFiles.length > 1);
+    lastUsedAnimationIndex = randomIndex;
+    return randomFBX;
+}
+
+function updateFileDisplay(modelName, animationName) {
+    document.getElementById('currentModel').textContent = modelName || 'None';
+    document.getElementById('currentAnimation').textContent = animationName || 'None';
+}
+
+let expressionsFolder = null;
+let expressionParams = {};
+
+const commonExpressions = [
+    'blink','blinkLeft','blinkRight','wink','winkLeft','winkRight',
+    'aa','ih','ou','ee','oh','teethOpen',
+    'lookUp','lookDown','lookLeft','lookRight',
+    'happy','relaxed','surprised','angry','sad','fun','lowered','raised','joy'
+];
+
+function setupBlendshapes(vrm) {
+    if (!vrm || !vrm.expressionManager) {
+        return;
+    }
+    if (expressionsFolder) {
+        gui.removeFolder(expressionsFolder);
+        expressionsFolder = null;
+        expressionParams = {};
+    }
+    expressionsFolder = gui.addFolder('Expressions');
+    let validExpressions = [];
+    if (vrm.expressionManager.expressionMap) {
+        validExpressions = Object.keys(vrm.expressionManager.expressionMap);
+    } else if (vrm.expressionManager._expressionMap) {
+        validExpressions = Object.keys(vrm.expressionManager._expressionMap);
+    } else if (vrm.expressionManager.expressions) {
+        validExpressions = Object.keys(vrm.expressionManager.expressions);
+    } else if (Array.isArray(vrm.expressionManager.blinkExpressionNames)) {
+        validExpressions = [
+            ...vrm.expressionManager.blinkExpressionNames,
+            ...(vrm.expressionManager.mouthExpressionNames || []),
+            ...(vrm.expressionManager.lookAtExpressionNames || [])
+        ];
+    } else {
+        validExpressions = commonExpressions;
+    }
+    for (const name of validExpressions) {
+        if (Object.prototype.hasOwnProperty.call(expressionParams, name)) continue;
+        expressionParams[name] = 0.0;
+        try {
+            const controller = expressionsFolder.add(expressionParams, name, 0.0, 1.0, 0.01);
+            controller.onChange((value) => {
+                if (vrm && vrm.expressionManager) {
+                    try {
+                        vrm.expressionManager.setValue(name, value);
+                    } catch {}
+                }
+            });
+        } catch {
+            delete expressionParams[name];
+        }
+    }
+    if (Object.keys(expressionParams).length > 0) {
+        expressionsFolder.open();
+    }
+}
+
+function startRandomBlinking(vrm) {
+    if (!vrm || !vrm.expressionManager) return;
+    stopRandomBlinking();
+    const blinkExpressions = ['blink', 'blinkLeft', 'blinkRight', 'Blink', 'eyesClosed'];
+    let blinkAnimationFrame = null;
+    let blinkStartTime = 0;
+    let isBlinking = false;
+    let currentBlinkValue = 0.0;
+    const animateBlink = (timestamp) => {
+        if (!isBlinking) {
+            blinkAnimationFrame = requestAnimationFrame(animateBlink);
+            return;
+        }
+        const elapsed = (timestamp - blinkStartTime) / 1000;
+        const blinkDuration = 0.15;
+        if (elapsed < blinkDuration) {
+            let blinkProgress;
+            if (elapsed < blinkDuration / 2) {
+                blinkProgress = 0.5 * (1 - Math.cos(Math.PI * elapsed / (blinkDuration / 2)));
+            } else {
+                const openElapsed = elapsed - blinkDuration / 2;
+                blinkProgress = 0.5 * (1 + Math.cos(Math.PI * openElapsed / (blinkDuration / 2)));
+            }
+            currentBlinkValue = Math.min(1.0, blinkProgress);
+            for (const blinkName of blinkExpressions) {
+                try { vrm.expressionManager.setValue(blinkName, currentBlinkValue); } catch {}
+            }
+            blinkAnimationFrame = requestAnimationFrame(animateBlink);
+        } else {
+            isBlinking = false;
+            currentBlinkValue = 0.0;
+            for (const blinkName of blinkExpressions) {
+                try { vrm.expressionManager.setValue(blinkName, 0.0); } catch {}
+            }
+        }
+    };
+    blinkAnimationFrame = requestAnimationFrame(animateBlink);
+    const performBlink = () => {
+        if (!vrm || !vrm.expressionManager || isBlinking) return;
+        isBlinking = true;
+        blinkStartTime = performance.now();
+    };
+    const scheduleBlink = () => {
+        const randomInterval = (Math.random() * 4 + 2) * 1000;
+        setTimeout(() => { performBlink(); scheduleBlink(); }, randomInterval);
+    };
+    scheduleBlink();
+    blinkInterval = { cancel: () => cancelAnimationFrame(blinkAnimationFrame) };
+}
+
+function stopRandomBlinking() {
+    if (blinkInterval) {
+        if (blinkInterval.cancel) { blinkInterval.cancel(); }
+        blinkInterval = undefined;
+    }
+}
+
+function loadVRM( modelUrl, modelName, animationToLoad = null ) {
+    const loader = new GLTFLoader();
+    loader.crossOrigin = 'anonymous';
+    helperRoot.clear();
+    loader.register( ( parser ) => new VRMLoaderPlugin( parser, { helperRoot: helperRoot, autoUpdateHumanBones: true } ) );
+    loader.load(
+        modelUrl,
+        ( gltf ) => {
+            const vrm = gltf.userData.vrm;
+            VRMUtils.removeUnnecessaryVertices( gltf.scene );
+            VRMUtils.combineSkeletons( gltf.scene );
+            VRMUtils.combineMorphs( vrm );
+            if ( currentVrm ) {
+                stopRandomBlinking();
+                scene.remove( currentVrm.scene );
+                VRMUtils.deepDispose( currentVrm.scene );
+            }
+            currentVrm = vrm;
+            scene.add( vrm.scene );
+            currentMixer = new THREE.AnimationMixer( currentVrm.scene );
+            vrm.scene.traverse( ( obj ) => { obj.frustumCulled = false; } );
+            VRMUtils.rotateVRM0( vrm );
+            updateFileDisplay(modelName, document.getElementById('currentAnimation').textContent);
+            setupBlendshapes(vrm);
+            startRandomBlinking(vrm);
+            if ( animationToLoad ) {
+                setTimeout(async () => {
+                    const animName = safeFileNameFromUrl(animationToLoad);
+                    const resolvedAnimUrl = await getAnimationURL(animName);
+                    currentAnimationUrl = resolvedAnimUrl;
+                    loadFBX( resolvedAnimUrl, animName || 'Animation' );
+                }, 500);
+            } else {
+                // Always apply an animation immediately when a new model loads
+                setTimeout(async () => {
+                    try {
+                        let animUrl = currentAnimationUrl;
+                        let animName = null;
+                        if (animUrl) {
+                            animName = safeFileNameFromUrl(animUrl);
+                            if (!animUrl.startsWith('blob:')) {
+                                animUrl = await getAnimationURL(animName);
+                            }
+                        } else {
+                            const nextName = getNextAnimation();
+                            if (nextName) {
+                                animName = nextName;
+                                animUrl = await getAnimationURL(nextName);
+                            }
+                        }
+                        if (animUrl && animName) {
+                            currentAnimationUrl = animUrl;
+                            loadFBX(animUrl, animName);
+                        }
+                    } catch {}
+                }, 500);
+            }
+        },
+        ( progress ) => {
+            const percent = 100.0 * ( progress.loaded / progress.total );
+            updateFileDisplay(`Loading... ${percent.toFixed(0)}%`, document.getElementById('currentAnimation').textContent);
+        },
+        ( error ) => {
+            console.error( 'Error loading VRM:', error );
+            updateFileDisplay('Error loading model', document.getElementById('currentAnimation').textContent);
+        },
+    );
+}
+
+function loadFBX( animationUrl, animationName, crossFadeDuration = 0.5 ) {
+    currentAnimationUrl = animationUrl;
+    if ( !currentMixer || !currentVrm ) {
+        console.warn('Please load a VRM model first');
+        return;
+    }
+    updateFileDisplay(document.getElementById('currentModel').textContent, `Loading ${animationName}...`);
+    loadHumanoidAnimation( animationUrl, currentVrm )
+        .then( ( clip ) => {
+            const newAction = currentMixer.clipAction( clip );
+            newAction.reset();
+            if ( currentAction && currentAction !== newAction ) {
+                newAction.play();
+                currentAction.crossFadeTo( newAction, crossFadeDuration, true );
+            } else {
+                newAction.play();
+            }
+            currentAction = newAction;
+            updateFileDisplay(document.getElementById('currentModel').textContent, animationName);
+        })
+        .catch( ( error ) => {
+            console.error('Error loading animation:', error);
+            updateFileDisplay(document.getElementById('currentModel').textContent, 'Error: ' + error.message);
+        });
+}
+
+window.loadRandomFiles = async function() {
+    const randomVRM = getRandomItem(vrmFiles);
+    const randomFBX = getNextAnimation();
+    if (randomVRM && randomFBX) {
+        const vrmUrl = await getModelURL(randomVRM);
+        const fbxUrl = await getAnimationURL(randomFBX);
+        currentAnimationUrl = fbxUrl;
+        loadVRM(vrmUrl, randomVRM, fbxUrl);
+        // Start background preloading excluding current selections
+        startBackgroundPreloading(randomVRM, randomFBX);
+    } else if (randomVRM) {
+        const vrmUrl = await getModelURL(randomVRM);
+        loadVRM(vrmUrl, randomVRM);
+        startBackgroundPreloading(randomVRM, null);
+    }
+}
+
+window.loadNextAnimation = async function() {
+    if (!currentVrm || !currentMixer) {
+        alert('Please load a VRM model first');
+        return;
+    }
+    const nextFBX = getNextAnimation();
+    if (nextFBX) {
+        const fbxUrl = await getAnimationURL(nextFBX);
+        const btn = document.getElementById('nextAnimBtn');
+        const originalText = btn.textContent;
+        btn.textContent = 'Loading...';
+        btn.disabled = true;
+        loadFBX(fbxUrl, nextFBX, 0.8);
+        setTimeout(() => {
+            btn.textContent = originalText;
+            btn.disabled = false;
+        }, 1500);
+    }
+}
+
+window.addEventListener('DOMContentLoaded', async function() {
+    const defaultModel = '0001_01 2.vrm';
+    const randomFBX = getNextAnimation();
+    if (randomFBX) {
+        const vrmUrl = await getModelURL(defaultModel);
+        const fbxUrl = await getAnimationURL(randomFBX);
+        currentAnimationUrl = fbxUrl;
+        loadVRM(vrmUrl, defaultModel, fbxUrl);
+        startBackgroundPreloading(defaultModel, randomFBX);
+    } else {
+        const vrmUrl = await getModelURL(defaultModel);
+        loadVRM(vrmUrl, defaultModel);
+        startBackgroundPreloading(defaultModel, null);
+    }
+});
+
+const clock = new THREE.Clock();
+function animate() {
+    requestAnimationFrame( animate );
+    const deltaTime = clock.getDelta();
+    if ( currentMixer ) { currentMixer.update( deltaTime ); }
+    if ( currentVrm ) { currentVrm.update( deltaTime ); }
+    renderer.render( scene, camera );
+}
+animate();
+
+const gui = new GUI();
+const params = { timeScale: 1.0, showHelpers: false };
+gui.add( params, 'timeScale', 0.0, 2.0, 0.001 ).onChange( ( value ) => {
+    if ( currentMixer ) { currentMixer.timeScale = value; }
+} );
+gui.add( params, 'showHelpers' ).onChange( ( value ) => { helperRoot.visible = value; } );
+
+window.addEventListener( 'dragover', function ( event ) {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'copy';
+} );
+window.addEventListener( 'drop', function ( event ) {
+    event.preventDefault();
+    const files = event.dataTransfer.files;
+    if ( ! files ) return;
+    const file = files[ 0 ];
+    if ( ! file ) return;
+    const fileType = file.name.split( '.' ).pop().toLowerCase();
+    const blob = new Blob( [ file ], { type: 'application/octet-stream' } );
+    const url = URL.createObjectURL( blob );
+    if ( fileType === 'fbx' ) {
+        currentAnimationUrl = url;
+        if (currentVrm && currentMixer) {
+            loadFBX( url, file.name );
+        } else {
+            alert('Please load a VRM model first before loading animation');
+        }
+    } else if ( fileType === 'vrm' || fileType === 'glb' || fileType === 'gltf' ) {
+        loadVRM( url, file.name );
+    } else {
+        alert('Unsupported file type. Please drop a .vrm, .glb, .gltf, or .fbx file');
+    }
+} );
+
+window.addEventListener( 'resize', function () {
+    camera.aspect = window.innerWidth / window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize( window.innerWidth, window.innerHeight );
+} );
+        </script>
+    </body>
+</html>
