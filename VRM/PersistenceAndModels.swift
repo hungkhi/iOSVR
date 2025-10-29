@@ -6,6 +6,7 @@ struct PersistKeys {
     static let modelName = "persist.modelName"
     static let modelURL = "persist.modelURL"
     static let backgroundURL = "persist.backgroundURL"
+    static let roomName = "persist.roomName"
 }
 
 // MARK: - Character API Models

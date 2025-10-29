@@ -1,4 +1,5 @@
 import SwiftUI
+import AVFoundation
 import WebKit
 import Photos
 
@@ -11,7 +12,6 @@ struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
     @State private var webViewRef: WKWebView? = nil
     @State private var chatText: String = ""
-    @State private var selectedTab: String = "Play"
     var onModelReady: () -> Void = {}
     @State private var navigateToCharacters: Bool = false
     @State private var showPlaceholder: Bool = false
@@ -20,8 +20,18 @@ struct ContentView: View {
     @State private var showRoomSheet: Bool = false
     // Track currently selected character id for costume fetching
     @State private var currentCharacterId: String = "74432746-0bab-4972-a205-9169bece07f9"
+    @State private var currentCharacterName: String = ""
+    @State private var currentRoomName: String = ""
     @State private var isBgmOn: Bool = true
     @State private var chatMessages: [String] = []
+    @FocusState private var chatFieldFocused: Bool
+    // Voice recording state
+    @State private var isRecording: Bool = false
+    @State private var audioRecorder: AVAudioRecorder? = nil
+    @State private var audioMeterLevel: Float = 0.0
+    @State private var recordingStartTime: Date? = nil
+    @State private var recordedFileURL: URL? = nil
+    @State private var meterTimer: Timer? = nil
     // Characters for swipe navigation
     @State private var allCharacters: [CharacterItem] = []
     @State private var currentCharacterIndex: Int = 0
@@ -47,9 +57,9 @@ struct ContentView: View {
                                 } else {
                                     webViewRef?.evaluateJavaScript("window.prevBackground&&window.prevBackground();")
                                 }
-                                // Capture and persist current background after transition
-                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                                    captureAndSaveCurrentBackground()
+                        // Capture and persist current background and room name after transition
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                            captureAndSaveCurrentBackgroundAndRoom()
                                 }
                             }
                             // Vertical swipe -> change character (random)
@@ -85,6 +95,16 @@ struct ContentView: View {
                         if let playing = result as? Bool {
                             DispatchQueue.main.async { self.isBgmOn = playing }
                         }
+                    }
+                    // Seed title from persisted model name if available
+                    if currentCharacterName.isEmpty {
+                        let name = UserDefaults.standard.string(forKey: PersistKeys.modelName) ?? ""
+                        if !name.isEmpty { currentCharacterName = name }
+                    }
+                    // Seed room name from persistence
+                    if currentRoomName.isEmpty {
+                        let rn = UserDefaults.standard.string(forKey: PersistKeys.roomName) ?? ""
+                        if !rn.isEmpty { currentRoomName = rn }
                     }
                     // Apply persisted background if present and not already applied by injection
                     if let bg = UserDefaults.standard.string(forKey: PersistKeys.backgroundURL), !bg.isEmpty {
@@ -123,9 +143,11 @@ struct ContentView: View {
                                     webViewRef?.evaluateJavaScript(js)
                                 persistCharacter(id: item.id)
                                 persistModel(url: url, name: item.name)
+                                    currentCharacterName = item.name
                                 } else {
                                 // No direct URL; rely on model name mapping if provided elsewhere
                                 persistCharacter(id: item.id)
+                                currentCharacterName = item.name
                                 }
                                 // Sync swipe index
                                 if let idx = allCharacters.firstIndex(where: { $0.id == item.id }) {
@@ -136,12 +158,7 @@ struct ContentView: View {
                         } label: { EmptyView() }
                         .hidden()
 
-                        // Hidden navigation link for placeholder pages
-                        NavigationLink(isActive: $showPlaceholder) {
-                            PlaceholderView(title: placeholderTitle)
-                                .preferredColorScheme(.dark)
-                        } label: { EmptyView() }
-                        .hidden()
+                        // Placeholder link removed with tab removal
                     }
                 )
                 .overlay(alignment: .topTrailing) {
@@ -151,7 +168,7 @@ struct ContentView: View {
                             impactFeedback.impactOccurred()
                             showRoomSheet = true
                         }) {
-                            Image(systemName: "photo.on.rectangle")
+                            Image(systemName: "mappin.and.ellipse")
                                 .font(.system(size: 14, weight: .semibold))
                                 .frame(width: 32, height: 32)
                                 .contentShape(Circle())
@@ -165,7 +182,7 @@ struct ContentView: View {
                             impactFeedback.impactOccurred()
                             webViewRef?.evaluateJavaScript("window.triggerDance&&window.triggerDance();") 
                         }) {
-                            Image(systemName: "figure.dance")
+                            Image(systemName: "shuffle")
                                 .font(.system(size: 14, weight: .semibold))
                                 .frame(width: 32, height: 32)
                                 .contentShape(Circle())
@@ -243,12 +260,21 @@ struct ContentView: View {
                             LazyVStack(alignment: .leading, spacing: 6) {
                                 ForEach(chatMessages.indices, id: \.self) { index in
                                     Text(chatMessages[index])
-                                        .font(.system(size: 13, weight: .medium))
-                                        .foregroundStyle(.white)
-                                        .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 1)
+                                        .font(.system(size: 13, weight: .semibold))
+                                        .foregroundStyle(.black)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(Color.white.opacity(0.55))
+                                        .clipShape(Capsule())
+                                        .overlay(
+                                            Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1)
+                                        )
+                                        .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 1)
+                                        .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
                                         .opacity(calculateOpacity(for: index))
                                 }
                             }
+                            .animation(.spring(response: 0.35, dampingFraction: 0.9, blendDuration: 0.1), value: chatMessages)
                             .frame(height: 200, alignment: .bottomLeading)
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 28)
@@ -257,7 +283,8 @@ struct ContentView: View {
                             .allowsHitTesting(false)
                         }
                         
-                        // Preset quick message chips
+                        // Preset quick message chips - only show when input is focused (keyboard visible)
+                        if chatFieldFocused {
                         HStack(spacing: 8) {
                             Button(action: { 
                                 let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
@@ -318,6 +345,7 @@ struct ContentView: View {
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.leading, 28)
+                        }
                     }
                     .padding(.bottom, 14)
                 }
@@ -334,31 +362,19 @@ struct ContentView: View {
                             }
                         }) { Image(systemName: isBgmOn ? "speaker.wave.2.fill" : "speaker.slash.fill") }
                         .padding(6)
-                        .background(Color.white.opacity(0.05))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                     ToolbarItem(placement: .principal) {
-                        Picker("Mode", selection: $selectedTab) {
-                            Text("Play").tag("Play")
-                            Text("Chat").tag("Chat")
-                            Text("Gallery").tag("Gallery")
-                        }
-                        .pickerStyle(.segmented)
-                        .frame(maxWidth: 300)
-                        .onChange(of: selectedTab) { oldValue, newValue in
-                            switch newValue {
-                            case "Play":
-                                showPlaceholder = false
-                            case "Chat":
-                                placeholderTitle = "Chat"
-                                showPlaceholder = true
-                            case "Gallery":
-                                placeholderTitle = "Gallery"
-                                showPlaceholder = true
-                            default:
-                                break
+                        VStack(spacing: 2) {
+                            Text(displayedCharacterTitle())
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundStyle(.white)
+                            if !currentRoomName.isEmpty {
+                                Text(currentRoomName)
+                                    .font(.footnote)
+                                    .foregroundStyle(.white.opacity(0.9))
                             }
                         }
+                        .multilineTextAlignment(.center)
                     }
                     ToolbarItem(placement: .topBarTrailing) {
                         Button(action: { 
@@ -369,18 +385,41 @@ struct ContentView: View {
                             Image(systemName: "square.grid.2x2.fill")
                         }
                         .padding(6)
-                        .background(Color.white.opacity(0.05))
-                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
 
                     ToolbarItemGroup(placement: .bottomBar) {
                         HStack(spacing: 10) {
+                            // When recording, show a simple sound bar in place of input
+                            if isRecording {
+                                ZStack(alignment: .leading) {
+                                    Capsule()
+                                        .fill(Color.white.opacity(0.08))
+                                        .frame(height: 34)
+                                    // bar width follows audioMeterLevel (0..1)
+                                    Capsule()
+                                        .fill(Color.white.opacity(0.45))
+                                        .frame(width: max(14, CGFloat(max(0.0, min(1.0, audioMeterLevel))) * 220), height: 34)
+                                        .animation(.linear(duration: 0.1), value: audioMeterLevel)
+                                }
+                                .frame(maxWidth: .infinity)
+                            } else {
                             TextField("Ask Anything", text: $chatText)
                                 .textFieldStyle(.plain)
                                 .textInputAutocapitalization(.sentences)
                                 .disableAutocorrection(false)
                                 .background(Color.clear)
                                 .frame(maxWidth: .infinity)
+                                .focused($chatFieldFocused)
+                            }
+                            if isRecording {
+                                // Recording controls: stop and send
+                                Button(action: { stopRecording(send: false) }) {
+                                    Image(systemName: "stop.fill")
+                                }
+                                Button(action: { stopRecording(send: true) }) {
+                                    Image(systemName: "paperplane.fill")
+                                }
+                            } else if chatFieldFocused {
                             Button(action: {
                                 let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
                                 impactFeedback.impactOccurred()
@@ -390,6 +429,17 @@ struct ContentView: View {
                                 chatText = ""
                             }) {
                                 Image(systemName: "paperplane.fill")
+                                }
+                                .transition(.opacity.combined(with: .scale))
+                            } else {
+                                Button(action: {
+                                    let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+                                    impactFeedback.impactOccurred()
+                                    startRecording()
+                                }) {
+                                    Image(systemName: "mic.fill")
+                                }
+                                .transition(.opacity.combined(with: .scale))
                             }
                         }
                         .padding(.vertical, 4)
@@ -429,7 +479,8 @@ struct ContentView: View {
                             .replacingOccurrences(of: "\"", with: "\\\"")
                         let js = "document.body.style.backgroundImage = `url('\(escapedImage)')`;"
                         webViewRef?.evaluateJavaScript(js)
-                        persistBackground(url: room.image)
+                        persistRoom(name: room.name, url: room.image)
+                        currentRoomName = room.name
                     }
                     .preferredColorScheme(.dark)
                     .presentationDetents([.fraction(0.35), .large])
@@ -440,11 +491,15 @@ struct ContentView: View {
     
     private func sendMessage(_ message: String) {
         // Add message to chat list
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.9, blendDuration: 0.1)) {
         chatMessages.append(message)
+        }
         
         // Keep only last 10 messages to prevent memory issues
         if chatMessages.count > 10 {
+            withAnimation(.easeInOut(duration: 0.2)) {
             chatMessages.removeFirst()
+            }
         }
         
         // Auto-scroll to latest message
@@ -454,6 +509,76 @@ struct ContentView: View {
         
         // TODO: Send message to web view or API
         // webViewRef?.evaluateJavaScript("sendMessage('\(message)');")
+    }
+    
+    // MARK: - Voice Recording
+    private func startRecording() {
+        do {
+            let session = AVAudioSession.sharedInstance()
+            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
+            try session.setActive(true)
+            switch session.recordPermission {
+            case .granted:
+                break
+            case .undetermined:
+                session.requestRecordPermission { granted in
+                    DispatchQueue.main.async {
+                        if granted { startRecording() }
+                    }
+                }
+                return
+            default:
+                return
+            }
+            let url = FileManager.default.temporaryDirectory.appendingPathComponent("voice_\(UUID().uuidString).m4a")
+            let settings: [String: Any] = [
+                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
+                AVSampleRateKey: 44100,
+                AVNumberOfChannelsKey: 1,
+                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
+            ]
+            audioRecorder = try AVAudioRecorder(url: url, settings: settings)
+            audioRecorder?.isMeteringEnabled = true
+            audioRecorder?.prepareToRecord()
+            audioRecorder?.record()
+            isRecording = true
+            recordingStartTime = Date()
+            recordedFileURL = url
+            chatFieldFocused = false
+            meterTimer?.invalidate()
+            meterTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
+                audioRecorder?.updateMeters()
+                let power = audioRecorder?.averagePower(forChannel: 0) ?? -160
+                let normalized = max(0.0, min(1.0, (power + 60) / 60))
+                audioMeterLevel = Float(normalized)
+            }
+        } catch {
+            isRecording = false
+        }
+    }
+
+    private func stopRecording(send: Bool) {
+        meterTimer?.invalidate()
+        meterTimer = nil
+        audioRecorder?.stop()
+        let fileURL = recordedFileURL
+        audioRecorder = nil
+        isRecording = false
+        audioMeterLevel = 0
+        let duration: Int
+        if let start = recordingStartTime {
+            duration = max(0, Int(Date().timeIntervalSince(start).rounded()))
+        } else {
+            duration = 0
+        }
+        recordingStartTime = nil
+        if send {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.9, blendDuration: 0.1)) {
+                chatMessages.append("🎤 Voice message \(max(1, duration))s")
+            }
+            // fileURL contains the recorded audio for further processing/upload if needed
+            _ = fileURL
+        }
     }
 
     private func fetchCharactersList() {
@@ -483,6 +608,7 @@ struct ContentView: View {
         let item = allCharacters[newIndex]
         currentCharacterIndex = newIndex
         currentCharacterId = item.id
+        currentCharacterName = item.name
         // Preload costumes for the new character
         prefetchCostumeThumbnails(for: item.id)
         // Load model by URL if available
@@ -491,7 +617,16 @@ struct ContentView: View {
             let nameEscaped = item.name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
             let js = "window.loadModelByURL(\"\(escaped)\", \"\(nameEscaped)\");"
             webViewRef?.evaluateJavaScript(js)
+            // Persist selection for next launch
+            persistCharacter(id: item.id)
+            persistModel(url: url, name: item.name)
         }
+    }
+
+    private func displayedCharacterTitle() -> String {
+        if !currentCharacterName.isEmpty { return currentCharacterName }
+        if let found = allCharacters.first(where: { $0.id == currentCharacterId }) { return found.name }
+        return ""
     }
 
     // MARK: - Snapshot and save to Photos
@@ -696,14 +831,21 @@ private extension ContentView {
         if let url = url { UserDefaults.standard.set(url, forKey: PersistKeys.modelURL) } else { UserDefaults.standard.removeObject(forKey: PersistKeys.modelURL) }
         if let name = name { UserDefaults.standard.set(name, forKey: PersistKeys.modelName) }
     }
-    func persistBackground(url: String) {
+    func persistRoom(name: String, url: String) {
         UserDefaults.standard.set(url, forKey: PersistKeys.backgroundURL)
+        UserDefaults.standard.set(name, forKey: PersistKeys.roomName)
     }
-    func captureAndSaveCurrentBackground() {
-        let js = "(function(){try{const s=getComputedStyle(document.body).backgroundImage;const m=s&&s.match(/url\\(\\\"?([^\\\"]+)\\\"?\\)/);return m?m[1]:'';}catch(e){return ''}})();"
-        webViewRef?.evaluateJavaScript(js) { result, _ in
+    func captureAndSaveCurrentBackgroundAndRoom() {
+        let bgJS = "(function(){try{const s=getComputedStyle(document.body).backgroundImage;const m=s&&s.match(/url\\(\\\"?([^\\\"]+)\\\"?\\)/);return m?m[1]:'';}catch(e){return ''}})();"
+        webViewRef?.evaluateJavaScript(bgJS) { result, _ in
             if let url = result as? String, !url.isEmpty {
-                persistBackground(url: url)
+                UserDefaults.standard.set(url, forKey: PersistKeys.backgroundURL)
+            }
+        }
+        webViewRef?.evaluateJavaScript("(function(){try{return window.getCurrentRoomName&&window.getCurrentRoomName();}catch(e){return ''}})();") { result, _ in
+            if let name = result as? String {
+                UserDefaults.standard.set(name, forKey: PersistKeys.roomName)
+                DispatchQueue.main.async { self.currentRoomName = name }
             }
         }
     }

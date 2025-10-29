@@ -27,9 +27,11 @@ struct VRMWebView: UIViewRepresentable {
         // Inject persisted initial selections at document start
         let defaults = UserDefaults.standard
         let savedModelName = (defaults.string(forKey: PersistKeys.modelName) ?? "").replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let savedModelURL = (defaults.string(forKey: PersistKeys.modelURL) ?? "").replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         let savedBackgroundURL = (defaults.string(forKey: PersistKeys.backgroundURL) ?? "").replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
         var inject = ""
         if !savedModelName.isEmpty { inject += "window.nativeSelectedModelName=\"\(savedModelName)\";\n" }
+        if !savedModelURL.isEmpty { inject += "window.nativeSelectedModelURL=\"\(savedModelURL)\";\n" }
         if !savedBackgroundURL.isEmpty { inject += "window.initialBackgroundUrl=\"\(savedBackgroundURL)\";\n" }
         if !inject.isEmpty {
             let persistedScript = WKUserScript(source: inject, injectionTime: .atDocumentStart, forMainFrameOnly: true)

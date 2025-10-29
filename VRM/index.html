@@ -1085,13 +1085,20 @@ window.addEventListener('DOMContentLoaded', async function() {
         if (typeof window.initialBackgroundUrl === 'string' && window.initialBackgroundUrl.trim().length) {
             const url = window.initialBackgroundUrl.trim();
             document.body.style.backgroundImage = `url('${url}')`;
+            // Mark ready since background is applied synchronously
+            if (!initialBackgroundReady) { initialBackgroundReady = true; notifyInitialReadyIfDone(); }
         }
     } catch {}
-    // Allow native (Swift) to preselect a model by setting window.nativeSelectedModelName before this runs
-    const nativePick = (typeof window.nativeSelectedModelName === 'string' && window.nativeSelectedModelName.trim().length) ? window.nativeSelectedModelName.trim() : null;
-    const modelToLoad = nativePick || '0001_01 2.vrm';
-    const vrmUrl = await getModelURL(modelToLoad);
-    loadVRM(vrmUrl, modelToLoad);
+    // Allow native (Swift) to preselect a model by setting window.nativeSelectedModelName or nativeSelectedModelURL
+    const nativeName = (typeof window.nativeSelectedModelName === 'string' && window.nativeSelectedModelName.trim().length) ? window.nativeSelectedModelName.trim() : null;
+    const nativeURL = (typeof window.nativeSelectedModelURL === 'string' && window.nativeSelectedModelURL.trim().length) ? window.nativeSelectedModelURL.trim() : null;
+    if (nativeURL) {
+        loadModelByURL(nativeURL, nativeName || 'Remote Model');
+    } else {
+        const modelToLoad = nativeName || '0001_01 2.vrm';
+        const vrmUrl = await getModelURL(modelToLoad);
+        loadVRM(vrmUrl, modelToLoad);
+    }
     startBackgroundPreloading(modelToLoad, null);
     // Initialize background music on homepage access
     try { window.initBgm(); } catch {}
@@ -1229,6 +1236,14 @@ window.addEventListener( 'resize', function () {
             const i = roomList.findIndex(r => r.image === url || r.thumbnail === url);
             if (i >= 0) bgIndex = i;
         } catch {}
+    };
+
+    // Expose current room name to native
+    window.getCurrentRoomName = function() {
+        try {
+            if (!roomList.length || bgIndex < 0) return '';
+            return roomList[bgIndex]?.name || '';
+        } catch { return ''; }
     };
 
     // Initial fetch
