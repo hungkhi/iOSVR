@@ -8,23 +8,33 @@
             content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no"
         />
         <style>
+html, body {
+    height: 100%;
+    min-height: 100vh;
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+
 body {
-    height: 100vh;
-    padding-top: 100px;
-    background-color: rgb(134, 8, 8);
-    background-image: url('https://rapi.pixai.art/img/media/385807152149452857/thumbnail');
+    background-image: url('https://img.freepik.com/free-photo/anime-style-cozy-home-interior-with-furnishings_23-2151176377.jpg');
     background-size: cover;
     background-position: center center;
     background-repeat: no-repeat;
-    /* background-attachment: fixed; */
 }
 
 canvas {
     display: block;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 1;
 }
 
+
 #divInfo {
-    padding: 12px;
     position: fixed;
     background: rgba(255, 255, 255, 0.95);
     border-radius: 8px;
@@ -87,10 +97,50 @@ canvas {
 .lil-gui {
     display: none !important;
 }
+/* Floating action buttons (right side) */
+/* swift overlay buttons will replace web buttons */
+
+
+/* Loading overlay and blur */
+#loadingOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    background: rgba(0,0,0,0.25);
+    z-index: 1001;
+    font-family: Arial, sans-serif;
+    color: white;
+    text-shadow: 0 1px 2px rgba(0,0,0,0.6);
+}
+#loadingText {
+    margin-top: 12px;
+    font-size: 16px;
+}
+.loading-blur {
+    filter: blur(6px) saturate(0.9) brightness(0.95);
+    transition: filter 0.2s ease;
+}
         </style>
     </head>
 
     <body>
+        <div id="loadingOverlay">
+            <svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg" stroke="#fff">
+                <g fill="none" fill-rule="evenodd" stroke-width="4">
+                    <circle cx="22" cy="22" r="18" stroke-opacity="0.3" />
+                    <path d="M40 22c0-9.94-8.06-18-18-18" stroke="#fff">
+                        <animateTransform attributeName="transform" type="rotate" from="0 22 22" to="360 22 22" dur="1s" repeatCount="indefinite" />
+                    </path>
+                </g>
+            </svg>
+            <div id="loadingText">Loading... 0%</div>
+        </div>
         <div id="divInfo">
             <strong>Random VRM & Animation Loader</strong><br>
             <span style="font-size: 12px; color: #666;">Drag and drop to override</span>
@@ -103,6 +153,8 @@ canvas {
                 <button id="nextAnimBtn" onclick="loadNextAnimation()">Next Animation</button>
             </div>
         </div>
+
+        <!-- Swift overlay buttons will be added in native UI -->
 
         <script type="importmap">
             {
@@ -127,9 +179,10 @@ const mixamoVRMRigMap = {"mixamorigHips":"hips","mixamorigSpine":"spine","mixamo
 const genericVRMRigMap = {"Hips":"hips","Spine":"spine","Chest":"chest","UpperChest":"upperChest","Neck":"neck","Head":"head","LeftShoulder":"leftShoulder","LeftUpperArm":"leftUpperArm","LeftLowerArm":"leftLowerArm","LeftHand":"leftHand","RightShoulder":"rightShoulder","RightUpperArm":"rightUpperArm","RightLowerArm":"rightLowerArm","RightHand":"rightHand","LeftUpperLeg":"leftUpperLeg","LeftLowerLeg":"leftLowerLeg","LeftFoot":"leftFoot","LeftToes":"leftToes","RightUpperLeg":"rightUpperLeg","RightLowerLeg":"rightLowerLeg","RightFoot":"rightFoot","RightToes":"rightToes","hips":"hips","spine":"spine","chest":"chest","upper_chest":"upperChest","neck":"neck","head":"head","shoulder.L":"leftShoulder","upper_arm.L":"leftUpperArm","forearm.L":"leftLowerArm","hand.L":"leftHand","shoulder.R":"rightShoulder","upper_arm.R":"rightUpperArm","forearm.R":"rightLowerArm","hand.R":"rightHand","thigh.L":"leftUpperLeg","shin.L":"leftLowerLeg","foot.L":"leftFoot","toe.L":"leftToes","thigh.R":"rightUpperLeg","shin.R":"rightLowerLeg","foot.R":"rightFoot","toe.R":"rightToes"};
 const combinedRigMap = { ...genericVRMRigMap, ...mixamoVRMRigMap };
 const vrmFiles = ["0001_01 2.vrm","0001_01 3.vrm","0001_02 2.vrm","0001_02 3.vrm","0001_02.vrm","0001_03 2.vrm","0001_03.vrm","0001_04 2.vrm","0001_04.vrm","0001_05 2.vrm","0001_05.vrm","0001_06 2.vrm","0001_06.vrm","0001_07 2.vrm","0001_07 3.vrm","0001_07.vrm 2","0001_07.vrm","0001_08 2.vrm","0001_08 3.vrm","0001_08.vrm 2","0001_08.vrm","0001_09 2.vrm","0001_09.vrm","0001_10.vrm"];
-const fbxFiles = ["Angry.fbx","Bashful.fbx","Blow A Kiss.fbx","Booty Hip Hop Dance.fbx","Burpee.fbx","Chicken Dance.fbx","Circle Crunch.fbx","Cross Jumps.fbx","Hand Raising.fbx","Happy.fbx","Hip Hop Dancing.fbx","Idle Stand.fbx","Jumping Jacks.fbx","Quick Steps.fbx","Rumba Dancing.fbx","Snake Hip Hop Dance.fbx","Standing Arguing.fbx","Standing Greeting.fbx","Step Hip Hop Dance.fbx","Talking.fbx","Taunt.fbx","Thinking.fbx","Threatening.fbx"];
+const fbxFiles = ["Angry.fbx","Bashful.fbx","Blow A Kiss.fbx","Booty Hip Hop Dance.fbx","Chicken Dance.fbx","Cross Jumps.fbx","Hand Raising.fbx","Happy.fbx","Hip Hop Dancing.fbx","Idle Stand.fbx","Jumping Jacks.fbx","Quick Steps.fbx","Rumba Dancing.fbx","Snake Hip Hop Dance.fbx","Standing Arguing.fbx","Standing Greeting.fbx","Step Hip Hop Dance.fbx","Talking.fbx","Taunt.fbx","Thinking.fbx","Threatening.fbx"];
 const VRM_BASE_URL = 'https://n6n.top/Model/';
 const FBX_BASE_URL = 'https://n6n.top/Anim/';
+const BGM_URL = 'https://pub-14a49f54cd754145a7362876730a1a52.r2.dev/sensual-escape-139637.mp3';
 const namePatterns = {hips:/hip/i,spine:/spine/i,chest:/chest|spine1/i,upperChest:/upperchest|spine2/i,neck:/neck/i,head:/head/i,leftShoulder:/l(eft)?[-_\s]?shoulder/i,leftUpperArm:/l(eft)?[-_\s]?(upper)?[-_\s]?arm/i,leftLowerArm:/l(eft)?[-_\s]?(lower|fore)[-_\s]?arm/i,leftHand:/l(eft)?[-_\s]?hand/i,rightShoulder:/r(ight)?[-_\s]?shoulder/i,rightUpperArm:/r(ight)?[-_\s]?(upper)?[-_\s]?arm/i,rightLowerArm:/r(ight)?[-_\s]?(lower|fore)[-_\s]?arm/i,rightHand:/r(ight)?[-_\s]?hand/i,leftUpperLeg:/l(eft)?[-_\s]?(upper|up)[-_\s]?leg|l(eft)?[-_\s]?thigh/i,leftLowerLeg:/l(eft)?[-_\s]?(lower)?[-_\s]?leg|l(eft)?[-_\s]?(shin|calf)/i,leftFoot:/l(eft)?[-_\s]?foot/i,leftToes:/l(eft)?[-_\s]?(toe|toebase)/i,rightUpperLeg:/r(ight)?[-_\s]?(upper|up)[-_\s]?leg|r(ight)?[-_\s]?thigh/i,rightLowerLeg:/r(ight)?[-_\s]?(lower)?[-_\s]?leg|r(ight)?[-_\s]?(shin|calf)/i,rightFoot:/r(ight)?[-_\s]?foot/i,rightToes:/r(ight)?[-_\s]?(toe|toebase)/i};
 // === End inlined config ===
 
@@ -148,8 +201,6 @@ function fetchAndCacheObjectURL(name, baseUrl, cacheMap) {
         })
         .then(blob => URL.createObjectURL(blob))
         .catch(err => {
-            console.warn('Preload failed for', name, err);
-            // Remove failed entry so we can retry later
             cacheMap.delete(name);
             throw err;
         });
@@ -187,9 +238,9 @@ async function startBackgroundPreloading(excludeModelName = null, excludeAnimati
             withConcurrency(modelNames, (name) => fetchAndCacheObjectURL(name, VRM_BASE_URL, modelObjectURLCache), 2),
             withConcurrency(animNames, (name) => fetchAndCacheObjectURL(name, FBX_BASE_URL, animObjectURLCache), 3)
         ]);
-        console.log('✅ Background preloading completed');
+        /* preloading completed */
     } catch (e) {
-        console.warn('Background preloading finished with some errors');
+        /* background preloading finished with some errors */
     }
 }
 
@@ -351,11 +402,50 @@ let currentMixer = undefined;
 let currentAction = undefined;
 let lastUsedAnimationIndex = -1;
 let blinkInterval = undefined;
+let bgmAudio = undefined;
+let bgmEnabled = true;
+let smileController = undefined;
+let ambientController = undefined;
+let postLoadBlurTimerId = undefined;
 
 const helperRoot = new THREE.Group();
 helperRoot.renderOrder = 10000;
 helperRoot.visible = false;
 scene.add( helperRoot );
+
+// Loading UI helpers
+function setModelLoading(isLoading) {
+    try {
+        const overlay = document.getElementById('loadingOverlay');
+        const canvas = renderer?.domElement;
+        if (!overlay || !canvas) return;
+        overlay.style.display = isLoading ? 'flex' : 'none';
+        // Manage blur on canvas: blur while loading, remove when loaded
+        if (isLoading) {
+            if (postLoadBlurTimerId) { clearTimeout(postLoadBlurTimerId); postLoadBlurTimerId = undefined; }
+            canvas.classList.add('loading-blur');
+        } else {
+            if (postLoadBlurTimerId) { clearTimeout(postLoadBlurTimerId); postLoadBlurTimerId = undefined; }
+            try { canvas.classList.remove('loading-blur'); } catch {}
+            try {
+                if (currentAnimationUrl) {
+                    const name = safeFileNameFromUrl(currentAnimationUrl) || 'Animation';
+                    loadFBX(currentAnimationUrl, name, 0.5);
+                } else if (window.loadNextAnimation) {
+                    window.loadNextAnimation();
+                }
+            } catch {}
+        }
+        const text = document.getElementById('loadingText');
+        if (!isLoading && text) text.textContent = 'Loading... 0%';
+    } catch {}
+}
+function updateLoadingProgress(percent) {
+    try {
+        const text = document.getElementById('loadingText');
+        if (text) text.textContent = `Loading... ${Math.max(0, Math.min(100, percent|0))}%`;
+    } catch {}
+}
 
 function getRandomItem(array) {
     if (!array || array.length === 0) return null;
@@ -441,6 +531,9 @@ function setupBlendshapes(vrm) {
 function startRandomBlinking(vrm) {
     if (!vrm || !vrm.expressionManager) return;
     stopRandomBlinking();
+    // Store reference to current vrm for this instance
+    const targetVrm = vrm;
+    console.log('Starting blinking for VRM:', vrm);
     const blinkExpressions = ['blink', 'blinkLeft', 'blinkRight', 'Blink', 'eyesClosed'];
     let blinkAnimationFrame = null;
     let blinkStartTime = 0;
@@ -462,30 +555,46 @@ function startRandomBlinking(vrm) {
                 blinkProgress = 0.5 * (1 + Math.cos(Math.PI * openElapsed / (blinkDuration / 2)));
             }
             currentBlinkValue = Math.min(1.0, blinkProgress);
-            for (const blinkName of blinkExpressions) {
-                try { vrm.expressionManager.setValue(blinkName, currentBlinkValue); } catch {}
+            if (targetVrm && targetVrm.expressionManager) {
+                for (const blinkName of blinkExpressions) {
+                    try { targetVrm.expressionManager.setValue(blinkName, currentBlinkValue); } catch {}
+                }
             }
             blinkAnimationFrame = requestAnimationFrame(animateBlink);
         } else {
             isBlinking = false;
             currentBlinkValue = 0.0;
-            for (const blinkName of blinkExpressions) {
-                try { vrm.expressionManager.setValue(blinkName, 0.0); } catch {}
+            if (targetVrm && targetVrm.expressionManager) {
+                for (const blinkName of blinkExpressions) {
+                    try { targetVrm.expressionManager.setValue(blinkName, 0.0); } catch {}
+                }
             }
         }
     };
     blinkAnimationFrame = requestAnimationFrame(animateBlink);
     const performBlink = () => {
-        if (!vrm || !vrm.expressionManager || isBlinking) return;
+        if (!targetVrm || !targetVrm.expressionManager || isBlinking) return;
         isBlinking = true;
         blinkStartTime = performance.now();
     };
+    let scheduleTimeout = null;
     const scheduleBlink = () => {
-        const randomInterval = (Math.random() * 4 + 2) * 1000;
-        setTimeout(() => { performBlink(); scheduleBlink(); }, randomInterval);
+        const randomInterval = (Math.random() * 2 + 1) * 1000; // blink every 1–3 seconds
+        scheduleTimeout = setTimeout(() => { 
+            performBlink(); 
+            scheduleBlink(); 
+        }, randomInterval);
     };
     scheduleBlink();
-    blinkInterval = { cancel: () => cancelAnimationFrame(blinkAnimationFrame) };
+    blinkInterval = { 
+        cancel: () => {
+            cancelAnimationFrame(blinkAnimationFrame);
+            if (scheduleTimeout) {
+                clearTimeout(scheduleTimeout);
+                scheduleTimeout = null;
+            }
+        }
+    };
 }
 
 function stopRandomBlinking() {
@@ -495,71 +604,258 @@ function stopRandomBlinking() {
     }
 }
 
+// Periodic smiling similar to blinking
+function startRandomSmiling(vrm) {
+    if (!vrm || !vrm.expressionManager) return;
+    stopRandomSmiling();
+    const targetVrm = vrm;
+    console.log('Starting smiling for VRM:', vrm);
+    const smileExpressions = ['happy','joy','Joy','smile','Smile','fun','relaxed','smileOpen'];
+    let smileAnimationFrame = null;
+    let smileStartTime = 0;
+    let isSmiling = false;
+    let phase = 'in'; // 'in' -> 'hold' -> 'out'
+    const durations = { in: 0.3, hold: 0.25, out: 0.3 };
+    const maxSmile = 0.22; // subtle peak intensity
+
+    const setSmileValue = (v) => {
+        if (targetVrm && targetVrm.expressionManager) {
+            for (const n of smileExpressions) {
+                try { targetVrm.expressionManager.setValue(n, v); } catch {}
+            }
+        }
+    };
+
+    const animateSmile = (timestamp) => {
+        if (!isSmiling) {
+            smileAnimationFrame = requestAnimationFrame(animateSmile);
+            return;
+        }
+        const t = (timestamp - smileStartTime) / 1000;
+        let value = 0.0;
+        if (phase === 'in') {
+            const p = Math.min(1, t / durations.in);
+            value = 0.5 * (1 - Math.cos(Math.PI * p)); // ease-in
+            if (p >= 1) { phase = 'hold'; smileStartTime = timestamp; }
+        } else if (phase === 'hold') {
+            value = 1.0;
+            if (t >= durations.hold) { phase = 'out'; smileStartTime = timestamp; }
+        } else {
+            const p = Math.min(1, t / durations.out);
+            value = 1 - 0.5 * (1 - Math.cos(Math.PI * p)); // ease-out
+            if (p >= 1) { isSmiling = false; value = 0.0; }
+        }
+        const clamped = Math.max(0, Math.min(1, value));
+        setSmileValue(maxSmile * clamped);
+        smileAnimationFrame = requestAnimationFrame(animateSmile);
+    };
+    smileAnimationFrame = requestAnimationFrame(animateSmile);
+
+    const performSmile = () => {
+        if (!targetVrm || !targetVrm.expressionManager || isSmiling) return;
+        isSmiling = true;
+        phase = 'in';
+        smileStartTime = performance.now();
+    };
+
+    let smileScheduleTimeout = null;
+    const scheduleSmile = () => {
+        const intervalMs = (Math.random() * 5 + 5) * 1000; // 5-10s
+        smileScheduleTimeout = setTimeout(() => { 
+            performSmile(); 
+            scheduleSmile(); 
+        }, intervalMs);
+    };
+    scheduleSmile();
+    smileController = { 
+        cancel: () => {
+            cancelAnimationFrame(smileAnimationFrame);
+            if (smileScheduleTimeout) {
+                clearTimeout(smileScheduleTimeout);
+                smileScheduleTimeout = null;
+            }
+        }, 
+        clear: () => setSmileValue(0.0) 
+    };
+}
+
+function stopRandomSmiling() {
+    if (smileController) {
+        try { if (smileController.clear) smileController.clear(); } catch {}
+        try { if (smileController.cancel) smileController.cancel(); } catch {}
+        smileController = undefined;
+    }
+}
+
+// Ambient micro-expressions: randomly trigger subtle positive expressions with random intensity/duration
+function startAmbientMicroExpressions(vrm) {
+    if (!vrm || !vrm.expressionManager) return;
+    stopAmbientMicroExpressions();
+    const targetVrm = vrm;
+    console.log('Starting ambient expressions for VRM:', vrm);
+    const positiveCandidates = [
+        'happy','joy','fun','relaxed','lowered','raised', // generic positive/eyebrow
+        'ee','oh','aa','ih','ou' // subtle mouth shapes (speech-like micro-movements)
+    ];
+
+    let raf = null;
+    let active = false;
+    let startTime = 0;
+    let duration = 0.6;
+    let maxIntensity = 0.15;
+    let targetNames = [];
+    let phase = 'in';
+
+    const setValues = (v) => {
+        if (targetVrm && targetVrm.expressionManager) {
+            for (const n of targetNames) {
+                try { targetVrm.expressionManager.setValue(n, v); } catch {}
+            }
+        }
+    };
+
+    const chooseTargets = () => {
+        // Choose 1–2 expressions randomly
+        const count = Math.random() < 0.65 ? 1 : 2;
+        const picks = [];
+        const pool = positiveCandidates.slice();
+        while (picks.length < count && pool.length > 0) {
+            const i = (Math.random() * pool.length) | 0;
+            picks.push(pool.splice(i, 1)[0]);
+        }
+        return picks;
+    };
+
+    const animate = (ts) => {
+        if (!active) { raf = requestAnimationFrame(animate); return; }
+        const t = (ts - startTime) / 1000;
+        let value = 0.0;
+        const inDur = duration * 0.35;
+        const holdDur = duration * 0.3;
+        const outDur = duration * 0.35;
+        if (phase === 'in') {
+            const p = Math.min(1, t / inDur);
+            value = 0.5 * (1 - Math.cos(Math.PI * p));
+            if (p >= 1) { phase = 'hold'; startTime = ts; }
+        } else if (phase === 'hold') {
+            value = 1.0;
+            if (t >= holdDur) { phase = 'out'; startTime = ts; }
+        } else {
+            const p = Math.min(1, t / outDur);
+            value = 1 - 0.5 * (1 - Math.cos(Math.PI * p));
+            if (p >= 1) { active = false; value = 0.0; }
+        }
+        setValues(maxIntensity * Math.max(0, Math.min(1, value)));
+        raf = requestAnimationFrame(animate);
+    };
+    raf = requestAnimationFrame(animate);
+
+    const trigger = () => {
+        if (!targetVrm || !targetVrm.expressionManager || active) return;
+        // Randomize parameters per event
+        targetNames = chooseTargets();
+        maxIntensity = 0.07 + Math.random() * 0.13; // 0.07–0.20
+        duration = 0.5 + Math.random() * 0.7; // 0.5–1.2s
+        phase = 'in';
+        active = true;
+        startTime = performance.now();
+    };
+
+    let ambientScheduleTimeout = null;
+    const schedule = () => {
+        const interval = (Math.random() * 4 + 3.5) * 1000; // 3.5–7.5s
+        ambientScheduleTimeout = setTimeout(() => { 
+            trigger(); 
+            schedule(); 
+        }, interval);
+    };
+    schedule();
+    ambientController = {
+        cancel: () => {
+            cancelAnimationFrame(raf);
+            if (ambientScheduleTimeout) {
+                clearTimeout(ambientScheduleTimeout);
+                ambientScheduleTimeout = null;
+            }
+        },
+        clear: () => setValues(0.0)
+    };
+}
+
+function stopAmbientMicroExpressions() {
+    if (ambientController) {
+        try { if (ambientController.clear) ambientController.clear(); } catch {}
+        try { if (ambientController.cancel) ambientController.cancel(); } catch {}
+        ambientController = undefined;
+    }
+}
+
 function loadVRM( modelUrl, modelName, animationToLoad = null ) {
     const loader = new GLTFLoader();
     loader.crossOrigin = 'anonymous';
     helperRoot.clear();
     loader.register( ( parser ) => new VRMLoaderPlugin( parser, { helperRoot: helperRoot, autoUpdateHumanBones: true } ) );
+    // show loading overlay
+    setModelLoading(true);
     loader.load(
         modelUrl,
         ( gltf ) => {
             const vrm = gltf.userData.vrm;
             VRMUtils.removeUnnecessaryVertices( gltf.scene );
             VRMUtils.combineSkeletons( gltf.scene );
-            VRMUtils.combineMorphs( vrm );
+            // Don't combine morphs - it interferes with expression blendshapes
+            // VRMUtils.combineMorphs( vrm );
             if ( currentVrm ) {
                 stopRandomBlinking();
+                stopRandomSmiling();
+                stopAmbientMicroExpressions();
                 scene.remove( currentVrm.scene );
                 VRMUtils.deepDispose( currentVrm.scene );
             }
             currentVrm = vrm;
             scene.add( vrm.scene );
-            currentMixer = new THREE.AnimationMixer( currentVrm.scene );
+			currentMixer = new THREE.AnimationMixer( currentVrm.scene );
+			// Clear any previous action from old mixer to avoid cross-fading across mixers
+			currentAction = undefined;
             vrm.scene.traverse( ( obj ) => { obj.frustumCulled = false; } );
             VRMUtils.rotateVRM0( vrm );
             updateFileDisplay(modelName, document.getElementById('currentAnimation').textContent);
             setupBlendshapes(vrm);
-            startRandomBlinking(vrm);
+            
+            // Start expressions after animation is applied
+            const startExpressions = () => {
+                startRandomBlinking(vrm);
+                startRandomSmiling(vrm);
+                startAmbientMicroExpressions(vrm);
+            };
+            
             if ( animationToLoad ) {
-                setTimeout(async () => {
-                    const animName = safeFileNameFromUrl(animationToLoad);
-                    const resolvedAnimUrl = await getAnimationURL(animName);
-                    currentAnimationUrl = resolvedAnimUrl;
-                    loadFBX( resolvedAnimUrl, animName || 'Animation' );
-                }, 500);
+				// Defer auto-play until post-load blur finishes; only set the selected animation name
+				(async () => {
+					try {
+						const animName = safeFileNameFromUrl(animationToLoad);
+						currentAnimationUrl = animationToLoad;
+						updateFileDisplay(modelName, animName || 'Animation');
+					} catch {}
+				})();
             } else {
-                // Always apply an animation immediately when a new model loads
-                setTimeout(async () => {
-                    try {
-                        let animUrl = currentAnimationUrl;
-                        let animName = null;
-                        if (animUrl) {
-                            animName = safeFileNameFromUrl(animUrl);
-                            if (!animUrl.startsWith('blob:')) {
-                                animUrl = await getAnimationURL(animName);
-                            }
-                        } else {
-                            const nextName = getNextAnimation();
-                            if (nextName) {
-                                animName = nextName;
-                                animUrl = await getAnimationURL(nextName);
-                            }
-                        }
-                        if (animUrl && animName) {
-                            currentAnimationUrl = animUrl;
-                            loadFBX(animUrl, animName);
-                        }
-                    } catch {}
-                }, 500);
+                // No animation to load, start expressions after a short delay
+                setTimeout(startExpressions, 500);
             }
+            // Notify Swift that model is loaded and scene attached
+            try { window.webkit?.messageHandlers?.loading?.postMessage('modelLoaded'); } catch {}
+            // hide loading overlay
+            setModelLoading(false);
         },
         ( progress ) => {
-            const percent = 100.0 * ( progress.loaded / progress.total );
+            const percent = progress.total ? (100.0 * ( progress.loaded / progress.total )) : 0;
             updateFileDisplay(`Loading... ${percent.toFixed(0)}%`, document.getElementById('currentAnimation').textContent);
+            updateLoadingProgress(percent);
         },
         ( error ) => {
-            console.error( 'Error loading VRM:', error );
+            /* error loading VRM */
             updateFileDisplay('Error loading model', document.getElementById('currentAnimation').textContent);
+            setModelLoading(false);
         },
     );
 }
@@ -567,7 +863,7 @@ function loadVRM( modelUrl, modelName, animationToLoad = null ) {
 function loadFBX( animationUrl, animationName, crossFadeDuration = 0.5 ) {
     currentAnimationUrl = animationUrl;
     if ( !currentMixer || !currentVrm ) {
-        console.warn('Please load a VRM model first');
+        /* please load a VRM model first */
         return;
     }
     updateFileDisplay(document.getElementById('currentModel').textContent, `Loading ${animationName}...`);
@@ -583,9 +879,21 @@ function loadFBX( animationUrl, animationName, crossFadeDuration = 0.5 ) {
             }
             currentAction = newAction;
             updateFileDisplay(document.getElementById('currentModel').textContent, animationName);
+            
+            // Start expressions after animation has started playing
+            if (currentVrm) {
+                setTimeout(() => {
+                    // Only start if not already running
+                    if (!blinkInterval) {
+                        startRandomBlinking(currentVrm);
+                        startRandomSmiling(currentVrm);
+                        startAmbientMicroExpressions(currentVrm);
+                    }
+                }, 200);
+            }
         })
         .catch( ( error ) => {
-            console.error('Error loading animation:', error);
+            /* error loading animation */
             updateFileDisplay(document.getElementById('currentModel').textContent, 'Error: ' + error.message);
         });
 }
@@ -595,9 +903,8 @@ window.loadRandomFiles = async function() {
     const randomFBX = getNextAnimation();
     if (randomVRM && randomFBX) {
         const vrmUrl = await getModelURL(randomVRM);
-        const fbxUrl = await getAnimationURL(randomFBX);
-        currentAnimationUrl = fbxUrl;
-        loadVRM(vrmUrl, randomVRM, fbxUrl);
+        // Do not start animation immediately; it will auto-play after post-load blur
+        loadVRM(vrmUrl, randomVRM);
         // Start background preloading excluding current selections
         startBackgroundPreloading(randomVRM, randomFBX);
     } else if (randomVRM) {
@@ -627,20 +934,91 @@ window.loadNextAnimation = async function() {
     }
 }
 
+// Background music controls
+window.initBgm = function() {
+    try {
+        if (bgmAudio) return;
+        bgmAudio = new Audio(BGM_URL);
+        bgmAudio.loop = true;
+        bgmAudio.volume = 0.25;
+        bgmAudio.muted = false;
+        bgmAudio.play().then(() => { bgmEnabled = true; }).catch(() => {
+            // Fallback: resume on first user interaction
+            const resume = () => {
+                try { bgmAudio.muted = false; bgmAudio.play().catch(() => {}); bgmEnabled = true; } catch {}
+                window.removeEventListener('touchend', resume, { capture: true });
+                window.removeEventListener('click', resume, { capture: true });
+            };
+            window.addEventListener('touchend', resume, { once: true, capture: true });
+            window.addEventListener('click', resume, { once: true, capture: true });
+        });
+    } catch {}
+}
+window.toggleBgm = function() {
+    try {
+        if (!bgmAudio) { window.initBgm(); }
+        if (!bgmAudio) return false;
+        if (bgmAudio.paused) {
+            bgmAudio.muted = false;
+            bgmAudio.play().catch(() => {});
+            bgmEnabled = true;
+        } else {
+            bgmAudio.pause();
+            bgmEnabled = false;
+        }
+        return !bgmAudio.paused;
+    } catch { return false; }
+}
+window.setBgm = function(enabled) {
+    try {
+        if (!bgmAudio) { window.initBgm(); }
+        if (!bgmAudio) return false;
+        if (enabled) {
+            bgmAudio.muted = false;
+            bgmAudio.play().catch(() => {});
+            bgmEnabled = true;
+        } else {
+            bgmAudio.pause();
+            bgmEnabled = false;
+        }
+        return enabled;
+    } catch { return false; }
+}
+window.isBgmPlaying = function() {
+    try { return !!bgmAudio && !bgmAudio.paused; } catch { return false; }
+}
+
+// Load a specific VRM model by file name (exposed to SwiftUI)
+window.loadModelByName = async function(modelName) {
+    try {
+        const vrmUrl = await getModelURL(modelName);
+        if (!vrmUrl) return;
+        loadVRM(vrmUrl, modelName);
+        // Optionally kick off background preloading excluding the current selection
+        startBackgroundPreloading(modelName, null);
+    } catch (e) {
+        /* error loading model by name */
+    }
+}
+
+// Load a VRM model by direct URL (optional display name)
+window.loadModelByURL = async function(url, name = 'Remote Model') {
+    try {
+        if (!url) return;
+        loadVRM(url, name);
+        startBackgroundPreloading(null, null);
+    } catch (e) {
+        /* error loading model by URL */
+    }
+}
+
 window.addEventListener('DOMContentLoaded', async function() {
     const defaultModel = '0001_01 2.vrm';
-    const randomFBX = getNextAnimation();
-    if (randomFBX) {
-        const vrmUrl = await getModelURL(defaultModel);
-        const fbxUrl = await getAnimationURL(randomFBX);
-        currentAnimationUrl = fbxUrl;
-        loadVRM(vrmUrl, defaultModel, fbxUrl);
-        startBackgroundPreloading(defaultModel, randomFBX);
-    } else {
-        const vrmUrl = await getModelURL(defaultModel);
-        loadVRM(vrmUrl, defaultModel);
-        startBackgroundPreloading(defaultModel, null);
-    }
+    const vrmUrl = await getModelURL(defaultModel);
+    loadVRM(vrmUrl, defaultModel);
+    startBackgroundPreloading(defaultModel, null);
+    // Initialize background music on homepage access
+    try { window.initBgm(); } catch {}
 });
 
 const clock = new THREE.Clock();
@@ -692,6 +1070,46 @@ window.addEventListener( 'resize', function () {
     camera.updateProjectionMatrix();
     renderer.setSize( window.innerWidth, window.innerHeight );
 } );
+
+// Expose handlers for native SwiftUI buttons
+(() => {
+    const bgList = [
+        'https://img.freepik.com/free-photo/anime-style-cozy-home-interior-with-furnishings_23-2151176377.jpg',
+        'https://img.freepik.com/free-photo/bright-anime-style-cityscape-at-night-neon_23-2151649326.jpg',
+        'https://img.freepik.com/free-photo/sakura-cherry-blossom-anime-style-landscape_23-2151195614.jpg',
+        'https://img.freepik.com/free-photo/anime-style-seaside-sunset-landscape_23-2151176422.jpg'
+    ];
+    let bgIndex = 0;
+    window.nextBackground = function() {
+        try {
+            bgIndex = (bgIndex + 1) % bgList.length;
+            document.body.style.backgroundImage = `url('${bgList[bgIndex]}')`;
+        } catch {}
+    };
+    window.triggerDance = function() {
+        try { window.loadNextAnimation && window.loadNextAnimation(); } catch {}
+    };
+    window.triggerLove = function() {
+        if (!currentVrm || !currentVrm.expressionManager) return;
+        const names = ['happy','joy','fun','relaxed'];
+        let t0 = performance.now();
+        const dur = 0.9;
+        const maxV = 0.35;
+        const setVal = (v) => { for (const n of names) { try { currentVrm.expressionManager.setValue(n, v); } catch {} } };
+        const step = (ts) => {
+            const t = (ts - t0) / 1000;
+            if (t <= dur) {
+                const p = t / dur;
+                const v = p < 0.5 ? (maxV * (0.5 * (1 - Math.cos(Math.PI * (p/0.5))))) : (maxV * (1 - 0.5 * (1 - Math.cos(Math.PI * ((p-0.5)/0.5)))));
+                setVal(Math.max(0, Math.min(maxV, v)));
+                requestAnimationFrame(step);
+            } else {
+                setVal(0.0);
+            }
+        };
+        requestAnimationFrame(step);
+    };
+})();
         </script>
     </body>
 </html>
