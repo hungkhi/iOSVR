@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		6760A9982EB23AA1006C75DB /* ElevenLabs in Frameworks */ = {isa = PBXBuildFile; productRef = 6760A9972EB23AA1006C75DB /* ElevenLabs */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXFileReference section */
 		67C3FD2B2EAFB43C00F1A22B /* VRM.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = VRM.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -36,6 +40,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				6760A9982EB23AA1006C75DB /* ElevenLabs in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,6 +83,7 @@
 			);
 			name = VRM;
 			packageProductDependencies = (
+				6760A9972EB23AA1006C75DB /* ElevenLabs */,
 			);
 			productName = VRM;
 			productReference = 67C3FD2B2EAFB43C00F1A22B /* VRM.app */;
@@ -107,6 +113,9 @@
 			);
 			mainGroup = 67C3FD222EAFB43C00F1A22B;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				6760A9962EB23AA1006C75DB /* XCRemoteSwiftPackageReference "elevenlabs-swift-sdk" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 67C3FD2C2EAFB43C00F1A22B /* Products */;
 			projectDirPath = "";
@@ -347,6 +356,25 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		6760A9962EB23AA1006C75DB /* XCRemoteSwiftPackageReference "elevenlabs-swift-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/elevenlabs/elevenlabs-swift-sdk.git";
+			requirement = {
+				branch = main;
+				kind = branch;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		6760A9972EB23AA1006C75DB /* ElevenLabs */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 6760A9962EB23AA1006C75DB /* XCRemoteSwiftPackageReference "elevenlabs-swift-sdk" */;
+			productName = ElevenLabs;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 67C3FD232EAFB43C00F1A22B /* Project object */;
 }

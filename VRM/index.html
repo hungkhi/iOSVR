@@ -446,6 +446,8 @@ let lastUsedAnimationIndex = -1;
 let blinkInterval = undefined;
 let bgmAudio = undefined;
 let bgmEnabled = true;
+let __bgmBaseVol = 0.25;
+let __bgmDuckVol = 0.08; // volume while speaking
 let smileController = undefined;
 let ambientController = undefined;
 let postLoadBlurTimerId = undefined;
@@ -645,7 +647,9 @@ function startRandomBlinking(vrm) {
     };
     let scheduleTimeout = null;
     const scheduleBlink = () => {
-        const randomInterval = (Math.random() * 2 + 1) * 1000; // blink every 1–3 seconds
+        // While speaking, blink more often (1–2s). Otherwise 1–3s.
+        const speaking = performance.now() < __speechActiveUntil;
+        const randomInterval = speaking ? (Math.random() * 1 + 1) * 1000 : (Math.random() * 2 + 1) * 1000;
         scheduleTimeout = setTimeout(() => { 
             performBlink(); 
             scheduleBlink(); 
@@ -1007,16 +1011,22 @@ window.initBgm = function() {
         if (bgmAudio) return;
         bgmAudio = new Audio(BGM_URL);
         bgmAudio.loop = true;
-        bgmAudio.volume = 0.25;
+        bgmAudio.volume = __bgmBaseVol;
+        try { bgmAudio.playsInline = true; } catch {}
+        try { bgmAudio.setAttribute && bgmAudio.setAttribute('playsinline', ''); } catch {}
         bgmAudio.muted = false;
         bgmAudio.play().then(() => { bgmEnabled = true; }).catch(() => {
             // Fallback: resume on first user interaction
             const resume = () => {
                 try { bgmAudio.muted = false; bgmAudio.play().catch(() => {}); bgmEnabled = true; } catch {}
+                window.removeEventListener('touchstart', resume, { capture: true });
                 window.removeEventListener('touchend', resume, { capture: true });
+                window.removeEventListener('pointerdown', resume, { capture: true });
                 window.removeEventListener('click', resume, { capture: true });
             };
+            window.addEventListener('touchstart', resume, { once: true, capture: true });
             window.addEventListener('touchend', resume, { once: true, capture: true });
+            window.addEventListener('pointerdown', resume, { once: true, capture: true });
             window.addEventListener('click', resume, { once: true, capture: true });
         });
     } catch {}
@@ -1050,6 +1060,16 @@ window.setBgm = function(enabled) {
         }
         return enabled;
     } catch { return false; }
+}
+// Optional: adjust base/ducking volumes at runtime
+window.setBgmVolumes = function(baseVol = 0.25, duckVol = 0.08) {
+    try {
+        __bgmBaseVol = Math.max(0, Math.min(1, Number(baseVol) || 0.25));
+        __bgmDuckVol = Math.max(0, Math.min(1, Number(duckVol) || 0.08));
+        if (bgmAudio && !bgmAudio.paused) {
+            bgmAudio.volume = __bgmBaseVol;
+        }
+    } catch {}
 }
 window.isBgmPlaying = function() {
     try { return !!bgmAudio && !bgmAudio.paused; } catch { return false; }
@@ -1110,6 +1130,7 @@ function animate() {
     const deltaTime = clock.getDelta();
     if ( currentMixer ) { currentMixer.update( deltaTime ); }
     if ( currentVrm ) { currentVrm.update( deltaTime ); }
+    applyBgmDucking();
     renderer.render( scene, camera );
 }
 animate();
@@ -1287,6 +1308,52 @@ window.applyParallax = (dx, dy) => {
         document.body.style.backgroundPosition = `calc(50% + ${x * 0.5}px) 50%`;
     } catch {}
 };
+
+    // Lipsync: set mouth openness [0..1]; damped smoothing
+    let __mouthLerp = 0;
+    let __speechActiveUntil = 0; // ms timestamp while speech is considered active
+    window.setMouthOpen = (v) => {
+        try {
+            // Amplify and bias for stronger lipsync
+            const raw = Math.max(0, Math.min(1, Number(v) || 0));
+            // Gain and soft gamma curve make quiet sounds visible and loud sounds pop
+            const gain = 3.0;            // stronger amplification
+            const gamma = 0.65;          // stronger curve
+            const biased = Math.pow(Math.min(1, raw * gain), gamma);
+            // Much faster response for more realistic lipsync
+            __mouthLerp = 0.15 * __mouthLerp + 0.85 * biased;
+            // Mark speech as active for blink scheduling
+            if (raw > 0.02) { __speechActiveUntil = performance.now() + 900; }
+            if (currentVrm && currentVrm.expressionManager) {
+            // Allow a bigger apparent opening, then clamp
+            const main = Math.max(0, Math.min(1, __mouthLerp * 1.35));
+                // Emphasize "aa" most, others slightly lower to avoid flat mouth shapes
+                const map = [
+                    ['aa', main],
+                    ['ee', main * 0.8],
+                    ['ih', main * 0.75],
+                    ['oh', Math.min(1, main * 1.1)],
+                    ['ou', Math.min(1, main * 1.05)],
+                    ['teethOpen', main * 0.6],
+                ];
+                for (const [n, val] of map) {
+                    try { currentVrm.expressionManager.setValue(n, val); } catch {}
+                }
+            }
+            // Also apply BG music ducking here (instant target change, smoothed in per-frame loop)
+        } catch {}
+    };
+
+    function applyBgmDucking() {
+        try {
+            if (!bgmAudio) return;
+            const speaking = performance.now() < __speechActiveUntil;
+            const target = speaking ? __bgmDuckVol : __bgmBaseVol;
+            // smooth toward target
+            const next = bgmAudio.volume + (target - bgmAudio.volume) * 0.15;
+            bgmAudio.volume = Math.max(0, Math.min(1, next));
+        } catch {}
+    }
         </script>
     </body>
 </html>

@@ -10,7 +10,7 @@ import Photos
 // ContentView - UPDATED FOR FULLSCREEN
 struct ContentView: View {
     @Environment(\.scenePhase) private var scenePhase
-    @State private var webViewRef: WKWebView? = nil
+    @State var webViewRef: WKWebView? = nil
     @State private var chatText: String = ""
     var onModelReady: () -> Void = {}
     @State private var navigateToCharacters: Bool = false
@@ -21,17 +21,11 @@ struct ContentView: View {
     // Track currently selected character id for costume fetching
     @State private var currentCharacterId: String = "74432746-0bab-4972-a205-9169bece07f9"
     @State private var currentCharacterName: String = ""
-    @State private var currentRoomName: String = ""
+    @State var currentRoomName: String = ""
     @State private var isBgmOn: Bool = true
-    @State private var chatMessages: [String] = []
+    // Chat messages: text or voice
+    @State var chatMessages: [ChatMessage] = []
     @FocusState private var chatFieldFocused: Bool
-    // Voice recording state
-    @State private var isRecording: Bool = false
-    @State private var audioRecorder: AVAudioRecorder? = nil
-    @State private var audioMeterLevel: Float = 0.0
-    @State private var recordingStartTime: Date? = nil
-    @State private var recordedFileURL: URL? = nil
-    @State private var meterTimer: Timer? = nil
     // Characters for swipe navigation
     @State private var allCharacters: [CharacterItem] = []
     @State private var currentCharacterIndex: Int = 0
@@ -39,11 +33,16 @@ struct ContentView: View {
     @State private var parallaxController: ParallaxController? = nil
     // Toast for save confirmation
     @State private var showSavedToast: Bool = false
+    // ElevenLabs
+    @StateObject private var convVM = ConversationViewModel()
+    private let elevenLabsAgentId: String = "agent_9201k8qwpfsjew2v76qf995vq416"
+    @State private var showChatList: Bool = true
     var body: some View {
         NavigationStack {
-            VRMWebView(htmlFileName: "index", webView: $webViewRef, onModelReady: onModelReady)
-                .ignoresSafeArea()
-                .highPriorityGesture(
+            ZStack {
+                VRMWebView(htmlFileName: "index", webView: $webViewRef, onModelReady: onModelReady)
+                    .ignoresSafeArea()
+                    .highPriorityGesture(
                     DragGesture(minimumDistance: 20, coordinateSpace: .local)
                         .onEnded { value in
                             let dx = value.translation.width
@@ -112,6 +111,15 @@ struct ContentView: View {
                         let js = "(function(){try{if(!window.__bgApplied){document.body.style.backgroundImage=\"url('\(escaped)')\";window.__bgApplied=true;}}catch(e){}})();"
                         webViewRef?.evaluateJavaScript(js)
                     }
+                    // Start ElevenLabs agent call immediately
+                    Task { await convVM.startConversationIfNeeded(agentId: elevenLabsAgentId) }
+                }
+                // Receive ElevenLabs agent text and append as pink bubbles
+                .onReceive(convVM.agentText) { text in
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                        chatMessages.append(ChatMessage(kind: .text(text), isAgent: true))
+                        if chatMessages.count > 10 { chatMessages.removeFirst() }
+                    }
                 }
                 .onChange(of: scenePhase) { _, newPhase in
                     switch newPhase {
@@ -149,6 +157,10 @@ struct ContentView: View {
                                 persistCharacter(id: item.id)
                                 currentCharacterName = item.name
                                 }
+                                // Start new ElevenLabs conversation for this character if available
+                                if let agentId = item.agent_elevenlabs_id, !agentId.isEmpty {
+                                    Task { await convVM.endConversation(); await convVM.startConversationIfNeeded(agentId: agentId) }
+                                }
                                 // Sync swipe index
                                 if let idx = allCharacters.firstIndex(where: { $0.id == item.id }) {
                                     currentCharacterIndex = idx
@@ -162,192 +174,39 @@ struct ContentView: View {
                     }
                 )
                 .overlay(alignment: .topTrailing) {
-                    VStack(spacing: 6) {
-                        Button(action: { 
-                            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                            impactFeedback.impactOccurred()
-                            showRoomSheet = true
-                        }) {
-                            Image(systemName: "mappin.and.ellipse")
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 32, height: 32)
-                                .contentShape(Circle())
+                    ControlButtonsView(
+                        onRoomTap: { showRoomSheet = true },
+                        onDanceTap: { webViewRef?.evaluateJavaScript("window.triggerDance&&window.triggerDance();") },
+                        onLoveTap: { webViewRef?.evaluateJavaScript("window.triggerLove&&window.triggerLove();") },
+                        onCostumeTap: { showCostumeSheet = true },
+                        onCameraTap: { captureAndSaveSnapshot() },
+                        showChatList: showChatList,
+                        onToggleChat: {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) { showChatList.toggle() }
                         }
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.circle)
-                        .clipShape(Circle())
-
-                        Button(action: { 
-                            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                            impactFeedback.impactOccurred()
-                            webViewRef?.evaluateJavaScript("window.triggerDance&&window.triggerDance();") 
-                        }) {
-                            Image(systemName: "shuffle")
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 32, height: 32)
-                                .contentShape(Circle())
-                        }
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.circle)
-                        .clipShape(Circle())
-
-                        Button(action: { 
-                            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                            impactFeedback.impactOccurred()
-                            webViewRef?.evaluateJavaScript("window.triggerLove&&window.triggerLove();") 
-                        }) {
-                            Image(systemName: "heart")
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 32, height: 32)
-                                .contentShape(Circle())
-                        }
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.circle)
-                        .clipShape(Circle())
-
-                        // Change Clothes button (opens costume sheet)
-                        Button(action: { 
-                            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                            impactFeedback.impactOccurred()
-                            showCostumeSheet = true 
-                        }) {
-                            Image(systemName: "tshirt")
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 32, height: 32)
-                                .contentShape(Circle())
-                        }
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.circle)
-                        .clipShape(Circle())
-
-                        // Camera capture button
-                        Button(action: {
-                            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                            impactFeedback.impactOccurred()
-                            captureAndSaveSnapshot()
-                        }) {
-                            Image(systemName: "camera")
-                                .font(.system(size: 14, weight: .semibold))
-                                .frame(width: 32, height: 32)
-                                .contentShape(Circle())
-                        }
-                        .buttonStyle(.glass)
-                        .buttonBorderShape(.circle)
-                        .clipShape(Circle())
-                    }
-                    .padding(.trailing, 8)
-                    .padding(.top, 6)
+                    )
                 }
                 .overlay(alignment: .top) {
-                    if showSavedToast {
-                        Text("Saved to Photos")
-                            .font(.system(size: 13, weight: .semibold))
-                            .foregroundStyle(.black)
-                            .padding(.horizontal, 18)
-                            .padding(.vertical, 10)
-                            .background(Color.white)
-                            .clipShape(Capsule())
-                            .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 2)
-                            .padding(.top, 0)
-                            .offset(y: -16)
-                    }
+                    SaveToastView(isVisible: showSavedToast)
                 }
                 .overlay(alignment: .bottom) {
                     VStack(spacing: 8) {
-                        // Live chat messages list - vertical, bottom aligned, fades when older
-                        if !chatMessages.isEmpty {
-                            // Non-scrollable chat list to avoid gesture conflicts; bottom-aligned
-                            LazyVStack(alignment: .leading, spacing: 6) {
-                                ForEach(chatMessages.indices, id: \.self) { index in
-                                    Text(chatMessages[index])
-                                        .font(.system(size: 13, weight: .semibold))
-                                        .foregroundStyle(.black)
-                                        .padding(.horizontal, 12)
-                                        .padding(.vertical, 8)
-                                        .background(Color.white.opacity(0.55))
-                                        .clipShape(Capsule())
-                                        .overlay(
-                                            Capsule().stroke(Color.white.opacity(0.15), lineWidth: 1)
-                                        )
-                                        .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 1)
-                                        .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
-                                        .opacity(calculateOpacity(for: index))
-                                }
-                            }
-                            .animation(.spring(response: 0.35, dampingFraction: 0.9, blendDuration: 0.1), value: chatMessages)
-                            .frame(height: 200, alignment: .bottomLeading)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding(.horizontal, 28)
-                            .padding(.bottom, 2)
-                            .clipped()
-                            .allowsHitTesting(false)
-                        }
+                        ChatMessagesOverlay(
+                            messages: chatMessages,
+                            showChatList: showChatList,
+                            onSwipeToHide: {
+                                withAnimation(.easeInOut(duration: 0.25)) { showChatList = false }
+                            },
+                            calculateOpacity: calculateOpacity,
+                            bottomInset: 0,
+                            isInputFocused: chatFieldFocused
+                        )
                         
-                        // Preset quick message chips - only show when input is focused (keyboard visible)
                         if chatFieldFocused {
-                        HStack(spacing: 8) {
-                            Button(action: { 
-                                let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                                impactFeedback.impactOccurred()
-                                sendMessage("Dance for me")
-                            }) {
-                                Text("Dance for me")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 8)
-                                    .background(.ultraThinMaterial)
-                                    .clipShape(Capsule())
-                                    .overlay(
-                                        Capsule()
-                                            .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                                    )
-                            }
-                            .buttonStyle(.plain)
-
-                            Button(action: { 
-                                let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                                impactFeedback.impactOccurred()
-                                sendMessage("Kiss me")
-                            }) {
-                                Text("Kiss me")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 8)
-                                    .background(.ultraThinMaterial)
-                                    .clipShape(Capsule())
-                                    .overlay(
-                                        Capsule()
-                                            .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                                    )
-                            }
-                            .buttonStyle(.plain)
-
-                            Button(action: { 
-                                let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                                impactFeedback.impactOccurred()
-                                sendMessage("Clothe off")
-                            }) {
-                                Text("Clothe off")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundStyle(.white)
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 8)
-                                    .background(.ultraThinMaterial)
-                                    .clipShape(Capsule())
-                                    .overlay(
-                                        Capsule()
-                                            .stroke(Color.white.opacity(0.15), lineWidth: 1)
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                        }
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.leading, 28)
+                            QuickMessageChips(onSendMessage: sendMessage)
                         }
                     }
-                    .padding(.bottom, 14)
+                    .padding(.bottom, 0)
                 }
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
@@ -389,20 +248,6 @@ struct ContentView: View {
 
                     ToolbarItemGroup(placement: .bottomBar) {
                         HStack(spacing: 10) {
-                            // When recording, show a simple sound bar in place of input
-                            if isRecording {
-                                ZStack(alignment: .leading) {
-                                    Capsule()
-                                        .fill(Color.white.opacity(0.08))
-                                        .frame(height: 34)
-                                    // bar width follows audioMeterLevel (0..1)
-                                    Capsule()
-                                        .fill(Color.white.opacity(0.45))
-                                        .frame(width: max(14, CGFloat(max(0.0, min(1.0, audioMeterLevel))) * 220), height: 34)
-                                        .animation(.linear(duration: 0.1), value: audioMeterLevel)
-                                }
-                                .frame(maxWidth: .infinity)
-                            } else {
                             TextField("Ask Anything", text: $chatText)
                                 .textFieldStyle(.plain)
                                 .textInputAutocapitalization(.sentences)
@@ -410,34 +255,34 @@ struct ContentView: View {
                                 .background(Color.clear)
                                 .frame(maxWidth: .infinity)
                                 .focused($chatFieldFocused)
-                            }
-                            if isRecording {
-                                // Recording controls: stop and send
-                                Button(action: { stopRecording(send: false) }) {
-                                    Image(systemName: "stop.fill")
-                                }
-                                Button(action: { stopRecording(send: true) }) {
+                            
+                            if chatFieldFocused || !chatText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                                Button(action: {
+                                    let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+                                    impactFeedback.impactOccurred()
+                                    let trimmed = chatText.trimmingCharacters(in: .whitespacesAndNewlines)
+                                    guard !trimmed.isEmpty else { return }
+                                    sendMessage(trimmed)
+                                    chatText = ""
+                                }) {
                                     Image(systemName: "paperplane.fill")
-                                }
-                            } else if chatFieldFocused {
-                            Button(action: {
-                                let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                                impactFeedback.impactOccurred()
-                                let trimmed = chatText.trimmingCharacters(in: .whitespacesAndNewlines)
-                                guard !trimmed.isEmpty else { return }
-                                sendMessage(trimmed)
-                                chatText = ""
-                            }) {
-                                Image(systemName: "paperplane.fill")
                                 }
                                 .transition(.opacity.combined(with: .scale))
                             } else {
                                 Button(action: {
                                     let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
                                     impactFeedback.impactOccurred()
-                                    startRecording()
+                                    if convVM.isConnected {
+                                        Task { await convVM.endConversation() }
+                                    } else {
+                                        Task { await convVM.startConversationIfNeeded(agentId: elevenLabsAgentId) }
+                                    }
                                 }) {
-                                    Image(systemName: "mic.fill")
+                                    if convVM.isConnected {
+                                        PulsingCircleView(volume: convVM.agentVolume)
+                                    } else {
+                                        Image(systemName: "mic.fill")
+                                    }
                                 }
                                 .transition(.opacity.combined(with: .scale))
                             }
@@ -486,14 +331,24 @@ struct ContentView: View {
                     .presentationDetents([.fraction(0.35), .large])
                     .presentationBackground(.ultraThinMaterial.opacity(0.2))
                 }
+                if chatFieldFocused {
+                    Color.clear
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            chatFieldFocused = false
+                        }
+                }
+            }
         }
     }
     
     private func sendMessage(_ message: String) {
         // Add message to chat list
         withAnimation(.spring(response: 0.35, dampingFraction: 0.9, blendDuration: 0.1)) {
-        chatMessages.append(message)
+            chatMessages.append(ChatMessage(kind: .text(message)))
         }
+        // Also send to ElevenLabs agent if connected
+        Task { await convVM.sendText(message) }
         
         // Keep only last 10 messages to prevent memory issues
         if chatMessages.count > 10 {
@@ -511,75 +366,6 @@ struct ContentView: View {
         // webViewRef?.evaluateJavaScript("sendMessage('\(message)');")
     }
     
-    // MARK: - Voice Recording
-    private func startRecording() {
-        do {
-            let session = AVAudioSession.sharedInstance()
-            try session.setCategory(.playAndRecord, mode: .default, options: [.defaultToSpeaker])
-            try session.setActive(true)
-            switch session.recordPermission {
-            case .granted:
-                break
-            case .undetermined:
-                session.requestRecordPermission { granted in
-                    DispatchQueue.main.async {
-                        if granted { startRecording() }
-                    }
-                }
-                return
-            default:
-                return
-            }
-            let url = FileManager.default.temporaryDirectory.appendingPathComponent("voice_\(UUID().uuidString).m4a")
-            let settings: [String: Any] = [
-                AVFormatIDKey: Int(kAudioFormatMPEG4AAC),
-                AVSampleRateKey: 44100,
-                AVNumberOfChannelsKey: 1,
-                AVEncoderAudioQualityKey: AVAudioQuality.high.rawValue
-            ]
-            audioRecorder = try AVAudioRecorder(url: url, settings: settings)
-            audioRecorder?.isMeteringEnabled = true
-            audioRecorder?.prepareToRecord()
-            audioRecorder?.record()
-            isRecording = true
-            recordingStartTime = Date()
-            recordedFileURL = url
-            chatFieldFocused = false
-            meterTimer?.invalidate()
-            meterTimer = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { _ in
-                audioRecorder?.updateMeters()
-                let power = audioRecorder?.averagePower(forChannel: 0) ?? -160
-                let normalized = max(0.0, min(1.0, (power + 60) / 60))
-                audioMeterLevel = Float(normalized)
-            }
-        } catch {
-            isRecording = false
-        }
-    }
-
-    private func stopRecording(send: Bool) {
-        meterTimer?.invalidate()
-        meterTimer = nil
-        audioRecorder?.stop()
-        let fileURL = recordedFileURL
-        audioRecorder = nil
-        isRecording = false
-        audioMeterLevel = 0
-        let duration: Int
-        if let start = recordingStartTime {
-            duration = max(0, Int(Date().timeIntervalSince(start).rounded()))
-        } else {
-            duration = 0
-        }
-        recordingStartTime = nil
-        if send {
-            withAnimation(.spring(response: 0.35, dampingFraction: 0.9, blendDuration: 0.1)) {
-                chatMessages.append("🎤 Voice message \(max(1, duration))s")
-            }
-            // fileURL contains the recorded audio for further processing/upload if needed
-            _ = fileURL
-        }
-    }
 
     private func fetchCharactersList() {
         guard allCharacters.isEmpty else { return }
@@ -620,6 +406,10 @@ struct ContentView: View {
             // Persist selection for next launch
             persistCharacter(id: item.id)
             persistModel(url: url, name: item.name)
+        }
+        // Start new conversation for this character's agent if provided
+        if let agentId = item.agent_elevenlabs_id, !agentId.isEmpty {
+            Task { await convVM.endConversation(); await convVM.startConversationIfNeeded(agentId: agentId) }
         }
     }
 
@@ -681,208 +471,6 @@ struct ContentView: View {
                 }
             }
         }
-    }
-    private func calculateOpacity(for index: Int) -> Double {
-        let total = chatMessages.count
-        // Start fading older messages; most recent ~4 stay strong
-        let fadeWindow = 6
-        let start = max(0, total - fadeWindow)
-        if index >= start { return 1.0 }
-        // Older than the fade window: progressively reduce opacity down to 0.15
-        let distance = Double(start - index)
-        let maxDistance: Double = 6.0
-        let alpha = max(0.15, 1.0 - distance / maxDistance)
-        return alpha
-    }
-}
-
-// MARK: - Networking
-// CharactersView: fetches from API and displays image + name cards
-private struct CharactersView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var characters: [CharacterItem] = []
-    @State private var isLoading: Bool = false
-    @State private var errorMessage: String? = nil
-    let onSelect: (CharacterItem) -> Void
-
-    // Two-column layout of rounded long image cards (top-aligned to avoid stagger overlap)
-    private let grid = [
-        GridItem(.flexible(), spacing: 16, alignment: .top),
-        GridItem(.flexible(), spacing: 16, alignment: .top)
-    ]
-
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            Group {
-                if isLoading {
-                    ScrollView {
-                        LazyVGrid(columns: grid, spacing: 16, pinnedViews: []) {
-                            ForEach(0..<8, id: \.self) { _ in
-                                SkeletonCharacterCardView()
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .padding(.bottom, 24)
-                    }
-                } else if let errorMessage {
-                    VStack(spacing: 12) {
-                        Text("Failed to load characters")
-                            .font(.headline)
-                            .foregroundStyle(.white)
-                        Text(errorMessage)
-                            .font(.footnote)
-                            .foregroundStyle(.white.opacity(0.7))
-                        Button("Retry") { 
-                            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                            impactFeedback.impactOccurred()
-                            load() 
-                        }
-                    }
-                    .padding()
-                } else if characters.isEmpty {
-                    VStack(spacing: 12) {
-                        Text("No characters available")
-                            .foregroundStyle(.white.opacity(0.8))
-                        Button("Reload") { 
-                            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                            impactFeedback.impactOccurred()
-                            load() 
-                        }
-                    }
-                    .padding()
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: grid, spacing: 16, pinnedViews: []) {
-                            ForEach(characters) { item in
-                                Button {
-                                    let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                                    impactFeedback.impactOccurred()
-                                    onSelect(item)
-                                    dismiss()
-                                } label: {
-                                    CharacterCardView(item: item)
-                                        .contentShape(Rectangle())
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 8)
-                        .padding(.bottom, 24)
-                    }
-                }
-            }
-        }
-        .navigationTitle("Characters")
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Button("Reload") { 
-                    let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                    impactFeedback.impactOccurred()
-                    load() 
-                }
-            }
-        }
-        .onAppear { if characters.isEmpty { load() } }
-    }
-
-    private func load() {
-        guard !isLoading else { return }
-        isLoading = true
-        errorMessage = nil
-        characters.removeAll()
-        var request = URLRequest(url: URL(string: "https://n8n8n.top/webhook/characters")!)
-        request.httpMethod = "GET"
-        URLSession.shared.dataTask(with: request) { data, response, error in
-            DispatchQueue.main.async {
-                isLoading = false
-                if let error = error { errorMessage = error.localizedDescription; return }
-                guard let data = data else { errorMessage = "No data"; return }
-                
-                do {
-                    var cleaned = data
-                    if var str = String(data: data, encoding: .utf8) {
-                        str = str.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if let range = str.range(of: "]", options: .backwards) {
-                            let sliced = String(str[str.startIndex..<range.upperBound])
-                            if let slicedData = sliced.data(using: .utf8) { cleaned = slicedData }
-                        }
-                    }
-                    let items = try JSONDecoder().decode([CharacterItem].self, from: cleaned)
-                    characters = items
-                    
-                } catch {
-                    errorMessage = "Decoding error: \(error.localizedDescription)"
-                }
-            }
-        }.resume()
-    }
-}
-
-// moved to UIComponents.swift
-
-private extension ContentView {
-    func persistCharacter(id: String) {
-        UserDefaults.standard.set(id, forKey: PersistKeys.characterId)
-    }
-    func persistModel(url: String?, name: String?) {
-        if let url = url { UserDefaults.standard.set(url, forKey: PersistKeys.modelURL) } else { UserDefaults.standard.removeObject(forKey: PersistKeys.modelURL) }
-        if let name = name { UserDefaults.standard.set(name, forKey: PersistKeys.modelName) }
-    }
-    func persistRoom(name: String, url: String) {
-        UserDefaults.standard.set(url, forKey: PersistKeys.backgroundURL)
-        UserDefaults.standard.set(name, forKey: PersistKeys.roomName)
-    }
-    func captureAndSaveCurrentBackgroundAndRoom() {
-        let bgJS = "(function(){try{const s=getComputedStyle(document.body).backgroundImage;const m=s&&s.match(/url\\(\\\"?([^\\\"]+)\\\"?\\)/);return m?m[1]:'';}catch(e){return ''}})();"
-        webViewRef?.evaluateJavaScript(bgJS) { result, _ in
-            if let url = result as? String, !url.isEmpty {
-                UserDefaults.standard.set(url, forKey: PersistKeys.backgroundURL)
-            }
-        }
-        webViewRef?.evaluateJavaScript("(function(){try{return window.getCurrentRoomName&&window.getCurrentRoomName();}catch(e){return ''}})();") { result, _ in
-            if let name = result as? String {
-                UserDefaults.standard.set(name, forKey: PersistKeys.roomName)
-                DispatchQueue.main.async { self.currentRoomName = name }
-            }
-        }
-    }
-    func prefetchCharacterThumbnails() {
-        guard let url = URL(string: "https://n8n8n.top/webhook/characters") else { return }
-        URLSession.shared.dataTask(with: url) { data, _, _ in
-            guard let data = data else { return }
-            if let items = try? JSONDecoder().decode([CharacterItem].self, from: data) {
-                let urls = items.compactMap { $0.thumbnail_url }.compactMap { URL(string: $0) }
-                ImagePrefetcher.prefetch(urls: urls)
-                
-            }
-        }.resume()
-    }
-
-    func prefetchCostumeThumbnails(for characterId: String) {
-        let effectiveId = characterId.isEmpty ? "74432746-0bab-4972-a205-9169bece07f9" : characterId
-        guard let url = URL(string: "https://n8n8n.top/webhook/costumes?character_id=\(effectiveId)") else { return }
-        URLSession.shared.dataTask(with: url) { data, _, _ in
-            guard let data = data else { return }
-            if let items = try? JSONDecoder().decode([CostumeItem].self, from: data) {
-                let urls = items.compactMap { $0.thumbnail }.compactMap { URL(string: $0) }
-                ImagePrefetcher.prefetch(urls: urls)
-                
-            }
-        }.resume()
-    }
-    
-    func prefetchRoomThumbnails() {
-        guard let url = URL(string: "https://n8n8n.top/webhook/rooms") else { return }
-        URLSession.shared.dataTask(with: url) { data, _, _ in
-            guard let data = data else { return }
-            if let items = try? JSONDecoder().decode([RoomItem].self, from: data) {
-                let urls = items.compactMap { $0.thumbnail }.compactMap { URL(string: $0) }
-                ImagePrefetcher.prefetch(urls: urls)
-            }
-        }.resume()
     }
 }
 

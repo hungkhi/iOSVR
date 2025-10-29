@@ -16,6 +16,7 @@ struct CharacterItem: Identifiable, Decodable, Hashable {
     let description: String?
     let thumbnail_url: String?
     let base_model_url: String?
+    let agent_elevenlabs_id: String?
 }
 
 // Costume from API
