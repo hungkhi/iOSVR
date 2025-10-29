@@ -23,6 +23,22 @@ body {
     background-repeat: no-repeat;
 }
 
+/* Smooth background crossfade overlay */
+#bgFadeOverlay {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background-size: cover;
+    background-position: center center;
+    background-repeat: no-repeat;
+    opacity: 0;
+    transition: opacity 400ms ease;
+    z-index: 0; /* below canvas (z-index:1), above body background */
+    pointer-events: none;
+}
+
 canvas {
     display: block;
     position: fixed;
@@ -30,6 +46,8 @@ canvas {
     left: 0;
     width: 100vw;
     height: 100vh;
+    /* Lift the rendered scene visually without changing model/camera coordinates */
+    margin-top: -40px; /* adjust as desired */
     z-index: 1;
 }
 
@@ -130,6 +148,7 @@ canvas {
     </head>
 
     <body>
+        <div id="bgFadeOverlay"></div>
         <div id="loadingOverlay">
             <svg width="44" height="44" viewBox="0 0 44 44" xmlns="http://www.w3.org/2000/svg" stroke="#fff">
                 <g fill="none" fill-rule="evenodd" stroke-width="4">
@@ -179,7 +198,7 @@ const mixamoVRMRigMap = {"mixamorigHips":"hips","mixamorigSpine":"spine","mixamo
 const genericVRMRigMap = {"Hips":"hips","Spine":"spine","Chest":"chest","UpperChest":"upperChest","Neck":"neck","Head":"head","LeftShoulder":"leftShoulder","LeftUpperArm":"leftUpperArm","LeftLowerArm":"leftLowerArm","LeftHand":"leftHand","RightShoulder":"rightShoulder","RightUpperArm":"rightUpperArm","RightLowerArm":"rightLowerArm","RightHand":"rightHand","LeftUpperLeg":"leftUpperLeg","LeftLowerLeg":"leftLowerLeg","LeftFoot":"leftFoot","LeftToes":"leftToes","RightUpperLeg":"rightUpperLeg","RightLowerLeg":"rightLowerLeg","RightFoot":"rightFoot","RightToes":"rightToes","hips":"hips","spine":"spine","chest":"chest","upper_chest":"upperChest","neck":"neck","head":"head","shoulder.L":"leftShoulder","upper_arm.L":"leftUpperArm","forearm.L":"leftLowerArm","hand.L":"leftHand","shoulder.R":"rightShoulder","upper_arm.R":"rightUpperArm","forearm.R":"rightLowerArm","hand.R":"rightHand","thigh.L":"leftUpperLeg","shin.L":"leftLowerLeg","foot.L":"leftFoot","toe.L":"leftToes","thigh.R":"rightUpperLeg","shin.R":"rightLowerLeg","foot.R":"rightFoot","toe.R":"rightToes"};
 const combinedRigMap = { ...genericVRMRigMap, ...mixamoVRMRigMap };
 const vrmFiles = ["0001_01 2.vrm","0001_01 3.vrm","0001_02 2.vrm","0001_02 3.vrm","0001_02.vrm","0001_03 2.vrm","0001_03.vrm","0001_04 2.vrm","0001_04.vrm","0001_05 2.vrm","0001_05.vrm","0001_06 2.vrm","0001_06.vrm","0001_07 2.vrm","0001_07 3.vrm","0001_07.vrm 2","0001_07.vrm","0001_08 2.vrm","0001_08 3.vrm","0001_08.vrm 2","0001_08.vrm","0001_09 2.vrm","0001_09.vrm","0001_10.vrm"];
-const fbxFiles = ["Angry.fbx","Bashful.fbx","Blow A Kiss.fbx","Booty Hip Hop Dance.fbx","Chicken Dance.fbx","Cross Jumps.fbx","Hand Raising.fbx","Happy.fbx","Hip Hop Dancing.fbx","Idle Stand.fbx","Jumping Jacks.fbx","Quick Steps.fbx","Rumba Dancing.fbx","Snake Hip Hop Dance.fbx","Standing Arguing.fbx","Standing Greeting.fbx","Step Hip Hop Dance.fbx","Talking.fbx","Taunt.fbx","Thinking.fbx","Threatening.fbx"];
+const fbxFiles = ["Angry.fbx","Bashful.fbx","Blow A Kiss.fbx","Booty Hip Hop Dance.fbx","Cross Jumps.fbx","Hand Raising.fbx","Happy.fbx","Hip Hop Dancing.fbx","Idle Stand.fbx","Jumping Jacks.fbx","Quick Steps.fbx","Rumba Dancing.fbx","Snake Hip Hop Dance.fbx","Standing Arguing.fbx","Standing Greeting.fbx","Step Hip Hop Dance.fbx","Talking.fbx","Taunt.fbx","Thinking.fbx","Threatening.fbx"];
 const VRM_BASE_URL = 'https://n6n.top/Model/';
 const FBX_BASE_URL = 'https://n6n.top/Anim/';
 const BGM_URL = 'https://pub-14a49f54cd754145a7362876730a1a52.r2.dev/sensual-escape-139637.mp3';
@@ -190,6 +209,29 @@ const namePatterns = {hips:/hip/i,spine:/spine/i,chest:/chest|spine1/i,upperChes
 const modelObjectURLCache = new Map(); // name -> Promise<objectURL>
 const animObjectURLCache = new Map();  // name -> Promise<objectURL>
 let preloadingStarted = false;
+
+// Splash gating: wait for first animation and background to be applied
+let initialAnimationApplied = false;
+let initialBackgroundReady = false;
+let progress100At = null; // timestamp when progress reached 100%
+let overlayHiddenAt = null; // timestamp when loading overlay was hidden
+let notifyTimer = null;
+function notifyInitialReadyIfDone() {
+    try {
+        if (!(initialAnimationApplied && initialBackgroundReady)) return;
+        const now = performance.now();
+        const t100 = progress100At ?? now;
+        const thide = overlayHiddenAt ?? now;
+        const target = Math.max(t100, thide) + 1000; // 1s after 100% + overlay hidden
+        const waitMs = target - now;
+        if (waitMs <= 0) {
+            window.webkit?.messageHandlers?.loading?.postMessage('initialReady');
+        } else {
+            if (notifyTimer) { clearTimeout(notifyTimer); }
+            notifyTimer = setTimeout(() => { try { window.webkit?.messageHandlers?.loading?.postMessage('initialReady'); } catch {} }, waitMs);
+        }
+    } catch {}
+}
 
 function fetchAndCacheObjectURL(name, baseUrl, cacheMap) {
     if (cacheMap.has(name)) return cacheMap.get(name);
@@ -427,10 +469,16 @@ function setModelLoading(isLoading) {
         } else {
             if (postLoadBlurTimerId) { clearTimeout(postLoadBlurTimerId); postLoadBlurTimerId = undefined; }
             try { canvas.classList.remove('loading-blur'); } catch {}
+            try { overlayHiddenAt = performance.now(); } catch {}
             try {
                 if (currentAnimationUrl) {
                     const name = safeFileNameFromUrl(currentAnimationUrl) || 'Animation';
                     loadFBX(currentAnimationUrl, name, 0.5);
+                } else if (lastUsedAnimationIndex === -1) {
+                    const idleName = getDefaultIdleAnimation();
+                    if (idleName) {
+                        getAnimationURL(idleName).then(u => { if (u) loadFBX(u, idleName, 0.5); });
+                    }
                 } else if (window.loadNextAnimation) {
                     window.loadNextAnimation();
                 }
@@ -444,6 +492,7 @@ function updateLoadingProgress(percent) {
     try {
         const text = document.getElementById('loadingText');
         if (text) text.textContent = `Loading... ${Math.max(0, Math.min(100, percent|0))}%`;
+        if ((percent|0) >= 100 && progress100At == null) { try { progress100At = performance.now(); notifyInitialReadyIfDone(); } catch {} }
     } catch {}
 }
 
@@ -464,6 +513,23 @@ function getNextAnimation() {
     } while (randomIndex === lastUsedAnimationIndex && attempts < 10 && fbxFiles.length > 1);
     lastUsedAnimationIndex = randomIndex;
     return randomFBX;
+}
+
+// Calm default animation for first-time auto-play
+function getDefaultIdleAnimation() {
+    if (!fbxFiles || fbxFiles.length === 0) return null;
+    const priorities = [
+        /idle/i,
+        /stand/i,
+        /greet|greeting|hello|wave/i,
+        /hand\s*raising/i,
+        /talk/i
+    ];
+    for (const p of priorities) {
+        const match = fbxFiles.find(name => p.test(name));
+        if (match) return match;
+    }
+    return null;
 }
 
 function updateFileDisplay(modelName, animationName) {
@@ -879,6 +945,7 @@ function loadFBX( animationUrl, animationName, crossFadeDuration = 0.5 ) {
             }
             currentAction = newAction;
             updateFileDisplay(document.getElementById('currentModel').textContent, animationName);
+            if (!initialAnimationApplied) { initialAnimationApplied = true; notifyInitialReadyIfDone(); }
             
             // Start expressions after animation has started playing
             if (currentVrm) {
@@ -1013,10 +1080,19 @@ window.loadModelByURL = async function(url, name = 'Remote Model') {
 }
 
 window.addEventListener('DOMContentLoaded', async function() {
-    const defaultModel = '0001_01 2.vrm';
-    const vrmUrl = await getModelURL(defaultModel);
-    loadVRM(vrmUrl, defaultModel);
-    startBackgroundPreloading(defaultModel, null);
+    // Apply initial background from native if provided
+    try {
+        if (typeof window.initialBackgroundUrl === 'string' && window.initialBackgroundUrl.trim().length) {
+            const url = window.initialBackgroundUrl.trim();
+            document.body.style.backgroundImage = `url('${url}')`;
+        }
+    } catch {}
+    // Allow native (Swift) to preselect a model by setting window.nativeSelectedModelName before this runs
+    const nativePick = (typeof window.nativeSelectedModelName === 'string' && window.nativeSelectedModelName.trim().length) ? window.nativeSelectedModelName.trim() : null;
+    const modelToLoad = nativePick || '0001_01 2.vrm';
+    const vrmUrl = await getModelURL(modelToLoad);
+    loadVRM(vrmUrl, modelToLoad);
+    startBackgroundPreloading(modelToLoad, null);
     // Initialize background music on homepage access
     try { window.initBgm(); } catch {}
 });
@@ -1073,19 +1149,90 @@ window.addEventListener( 'resize', function () {
 
 // Expose handlers for native SwiftUI buttons
 (() => {
-    const bgList = [
-        'https://img.freepik.com/free-photo/anime-style-cozy-home-interior-with-furnishings_23-2151176377.jpg',
-        'https://img.freepik.com/free-photo/bright-anime-style-cityscape-at-night-neon_23-2151649326.jpg',
-        'https://img.freepik.com/free-photo/sakura-cherry-blossom-anime-style-landscape_23-2151195614.jpg',
-        'https://img.freepik.com/free-photo/anime-style-seaside-sunset-landscape_23-2151176422.jpg'
-    ];
-    let bgIndex = 0;
+    // Dynamically fetched background rooms
+    let roomList = [];
+    let bgIndex = -1;
+    // Guard to sequence background transitions and avoid flicker/race
+    let bgTransitionId = 0;
+
+    async function fetchRooms() {
+        try {
+            const res = await fetch('https://n8n8n.top/webhook/rooms', { mode: 'cors' });
+            const data = await res.json();
+            if (Array.isArray(data)) {
+                roomList = data.filter(r => r && (r.image || r.thumbnail));
+                if (roomList.length > 0 && bgIndex < 0) {
+                    // Do not auto-apply a new background on initial load; keep existing
+                    // Just initialize index and mark background as ready for gating
+                    bgIndex = 0;
+                    if (!initialBackgroundReady) { initialBackgroundReady = true; notifyInitialReadyIfDone(); }
+                }
+            }
+        } catch {
+            // keep current background on error; treat as ready
+            if (!initialBackgroundReady) { initialBackgroundReady = true; notifyInitialReadyIfDone(); }
+        }
+    }
+
+    function smoothSetBackground(url) {
+        try {
+            const overlay = document.getElementById('bgFadeOverlay');
+            if (!overlay || !url) { document.body.style.backgroundImage = `url('${url}')`; return; }
+            const myId = ++bgTransitionId;
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            img.onload = () => {
+                if (myId !== bgTransitionId) return; // superseded
+                overlay.style.transition = 'none';
+                overlay.style.backgroundImage = `url('${url}')`;
+                overlay.style.opacity = '0';
+                void overlay.offsetWidth; // reflow
+                overlay.style.transition = 'opacity 400ms ease';
+                overlay.style.opacity = '1';
+                setTimeout(() => {
+                    if (myId !== bgTransitionId) return;
+                    document.body.style.backgroundImage = `url('${url}')`;
+                    overlay.style.opacity = '0';
+                    if (!initialBackgroundReady) { initialBackgroundReady = true; notifyInitialReadyIfDone(); }
+                }, 420);
+            };
+            img.onerror = () => {
+                if (myId !== bgTransitionId) return;
+                document.body.style.backgroundImage = `url('${url}')`;
+                if (!initialBackgroundReady) { initialBackgroundReady = true; notifyInitialReadyIfDone(); }
+            };
+            img.src = url;
+        } catch {}
+    }
+
+    // Public controls
     window.nextBackground = function() {
         try {
-            bgIndex = (bgIndex + 1) % bgList.length;
-            document.body.style.backgroundImage = `url('${bgList[bgIndex]}')`;
+            if (!roomList.length) { fetchRooms(); return; }
+            bgIndex = (bgIndex + 1) % roomList.length;
+            const url = roomList[bgIndex].image || roomList[bgIndex].thumbnail;
+            if (url) smoothSetBackground(url);
         } catch {}
     };
+    window.prevBackground = function() {
+        try {
+            if (!roomList.length) { fetchRooms(); return; }
+            bgIndex = (bgIndex - 1 + roomList.length) % roomList.length;
+            const url = roomList[bgIndex].image || roomList[bgIndex].thumbnail;
+            if (url) smoothSetBackground(url);
+        } catch {}
+    };
+    window.setBackgroundImage = function(url) {
+        try {
+            if (url) smoothSetBackground(url);
+            // Try to align bgIndex with the provided url if it exists in list
+            const i = roomList.findIndex(r => r.image === url || r.thumbnail === url);
+            if (i >= 0) bgIndex = i;
+        } catch {}
+    };
+
+    // Initial fetch
+    fetchRooms();
     window.triggerDance = function() {
         try { window.loadNextAnimation && window.loadNextAnimation(); } catch {}
     };
@@ -1110,6 +1257,21 @@ window.addEventListener( 'resize', function () {
         requestAnimationFrame(step);
     };
 })();
+
+// Parallax application: move background subtly with device tilt
+window.applyParallax = (dx, dy) => {
+    try {
+        const overlay = document.getElementById('bgFadeOverlay');
+        const x = Math.max(-100, Math.min(100, Number(dx) || 0));
+        const y = 0; // lock Y parallax
+        // Translate overlay for smooth GPU movement
+        if (overlay) {
+            overlay.style.transform = `translate(${x * 0.9}px, ${y}px)`;
+        }
+        // Also nudge body background position as a fallback
+        document.body.style.backgroundPosition = `calc(50% + ${x * 0.5}px) 50%`;
+    } catch {}
+};
         </script>
     </body>
 </html>

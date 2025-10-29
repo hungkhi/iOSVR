@@ -14,7 +14,7 @@ struct VRMApp: App {
         WindowGroup {
             ZStack {
                 ContentView(onModelReady: {
-                    withAnimation(.easeOut(duration: 0.35)) {
+                    withAnimation(.easeInOut(duration: 0.6)) {
                         showSplash = false
                     }
                 })
@@ -32,6 +32,7 @@ struct VRMApp: App {
 
 private struct SplashView: View {
     @State private var animate: Bool = false
+    @State private var spin: Bool = false
     @State private var image: UIImage? = nil
     var body: some View {
         ZStack {
@@ -39,20 +40,36 @@ private struct SplashView: View {
                 .ignoresSafeArea()
 
             VStack(spacing: 16) {
-                Group {
-                    if let image {
-                        Image(uiImage: image)
-                            .resizable()
-                            .scaledToFit()
-                    } else {
-                        Image(systemName: "cube.fill")
-                            .font(.system(size: 60))
-                            .foregroundStyle(.white.opacity(0.8))
+                ZStack {
+                    // Loading ring around the image (smaller, thinner, closer)
+                    Circle()
+                        .stroke(style: StrokeStyle(lineWidth: 6, lineCap: .round))
+                        .foregroundStyle(
+                            AngularGradient(
+                                gradient: Gradient(colors: [Color(#colorLiteral(red: 0.556, green: 0.651, blue: 1.0, alpha: 1.0)), Color(#colorLiteral(red: 0.416, green: 0.486, blue: 1.0, alpha: 1.0)), Color(#colorLiteral(red: 0.282, green: 0.733, blue: 0.471, alpha: 1.0)), Color(#colorLiteral(red: 0.556, green: 0.651, blue: 1.0, alpha: 1.0))]),
+                                center: .center
+                            )
+                        )
+                        .frame(width: 136, height: 136)
+                        .rotationEffect(.degrees(spin ? 360 : 0))
+                        .animation(.linear(duration: 1.2).repeatForever(autoreverses: false), value: spin)
+
+                    Group {
+                        if let image {
+                            Image(uiImage: image)
+                                .resizable()
+                                .scaledToFill()
+                                .frame(width: 120, height: 120)
+                                .clipShape(Circle())
+                        } else {
+                            Image(systemName: "cube.fill")
+                                .font(.system(size: 60))
+                                .foregroundStyle(.white.opacity(0.9))
+                        }
                     }
+                    .shadow(color: .black.opacity(0.35), radius: 18, x: 0, y: 10)
                 }
-                .frame(width: 160, height: 160)
                 .scaleEffect(animate ? 1.04 : 0.92)
-                .shadow(color: .black.opacity(0.4), radius: 16, x: 0, y: 8)
             }
         }
         .onAppear {
@@ -60,6 +77,8 @@ private struct SplashView: View {
             withAnimation(.easeInOut(duration: 1.6).repeatForever(autoreverses: true)) {
                 animate = true
             }
+            // Spin ring
+            spin = true
             // Try to load from asset catalog first
             if let assetImg = UIImage(named: "Splash") {
                 image = assetImg

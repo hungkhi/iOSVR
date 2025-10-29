@@ -1,440 +1,14 @@
 import SwiftUI
 import WebKit
+import Photos
 
-// MARK: - Character API Models
-struct CharacterItem: Identifiable, Decodable, Hashable {
-    let id: String
-    let name: String
-    let description: String?
-    let thumbnail_url: String?
-    let base_model_url: String?
-}
+// moved to UIComponents.swift
 
-// Costume from API
-struct CostumeItem: Identifiable, Decodable, Hashable {
-    let id: String
-    let character_id: String
-    let costume_name: String
-    let url: String
-    let thumbnail: String?
-    let model_url: String?
-}
-
-// Room from API
-struct RoomItem: Identifiable, Decodable, Hashable {
-    let id: String
-    let name: String
-    let thumbnail: String?
-    let image: String
-    let created_at: String
-    let `public`: Bool
-}
-
-// Simple auto-discovery
-struct FileDiscovery {
-    static func discoverFiles() -> (vrmFiles: [String], fbxFiles: [String]) {
-        
-        
-        var vrmFiles: [String] = []
-        var fbxFiles: [String] = []
-        
-        // Find all VRM files
-        if let vrmURLs = Bundle.main.urls(forResourcesWithExtension: "vrm", subdirectory: nil) {
-            vrmFiles = vrmURLs.map { $0.lastPathComponent }
-            
-        }
-        
-        // Find all FBX files
-        if let fbxURLs = Bundle.main.urls(forResourcesWithExtension: "fbx", subdirectory: nil) {
-            fbxFiles = fbxURLs.map { $0.lastPathComponent }
-            
-        }
-        
-        return (vrmFiles, fbxFiles)
-    }
-    
-    static func generateFileListJSON() -> String {
-        let files = discoverFiles()
-        
-        let jsonObject: [String: Any] = [
-            "vrmFiles": files.vrmFiles,
-            "fbxFiles": files.fbxFiles
-        ]
-        
-        if let jsonData = try? JSONSerialization.data(withJSONObject: jsonObject, options: .prettyPrinted),
-           let jsonString = String(data: jsonData, encoding: .utf8) {
-            return jsonString
-        }
-        
-        return "{\"vrmFiles\":[],\"fbxFiles\":[]}"
-    }
-}
-
-// VRMWebView with proper file loading
-struct VRMWebView: UIViewRepresentable {
-    let htmlFileName: String
-    @Binding var webView: WKWebView?
-    var onModelReady: () -> Void = {}
-    
-    func makeUIView(context: Context) -> WKWebView {
-        let configuration = WKWebViewConfiguration()
-        configuration.allowsInlineMediaPlayback = true
-        configuration.mediaTypesRequiringUserActionForPlayback = []
-        
-        // IMPORTANT: Set preferences to allow file access
-        let preferences = WKWebpagePreferences()
-        preferences.allowsContentJavaScript = true
-        configuration.defaultWebpagePreferences = preferences
-        
-        // Add user script to inject file list
-        let fileListJSON = FileDiscovery.generateFileListJSON()
-        
-        let script = """
-        window.discoveredFiles = \(fileListJSON);
-        console.log('🎯 Injected files:', window.discoveredFiles);
-        """
-        
-        let userScript = WKUserScript(source: script, injectionTime: .atDocumentStart, forMainFrameOnly: true)
-        configuration.userContentController.addUserScript(userScript)
-        
-        // Add message handler for debugging
-        configuration.userContentController.add(context.coordinator, name: "logging")
-        configuration.userContentController.add(context.coordinator, name: "loading")
-        
-        let webView = WKWebView(frame: .zero, configuration: configuration)
-        webView.navigationDelegate = context.coordinator
-        if #available(iOS 11.0, *) {
-            webView.scrollView.contentInsetAdjustmentBehavior = .never
-        }
-        webView.scrollView.bounces = false
-        
-        // Enable web inspector
-        #if DEBUG
-        if #available(iOS 16.4, *) {
-            webView.isInspectable = true
-        }
-        #endif
-        
-        // Expose the created webView to SwiftUI via binding so toolbar buttons can call JS
-        DispatchQueue.main.async {
-            self.webView = webView
-        }
-        return webView
-    }
-    
-    func updateUIView(_ webView: WKWebView, context: Context) {
-        guard let htmlPath = Bundle.main.path(forResource: htmlFileName, ofType: "html") else {
-            
-            return
-        }
-        
-        let htmlURL = URL(fileURLWithPath: htmlPath)
-        let bundleURL = Bundle.main.bundleURL
-        
-        
-        
-        // CRITICAL: Allow access to entire bundle, not just HTML directory
-        // This ensures VRM/FBX files can be loaded
-        webView.loadFileURL(htmlURL, allowingReadAccessTo: bundleURL)
-        
-        
-    }
-    
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onModelReady: onModelReady)
-    }
-    
-    class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
-        private let onModelReady: () -> Void
-        init(onModelReady: @escaping () -> Void) {
-            self.onModelReady = onModelReady
-        }
-        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-            
-        }
-        
-        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-            
-        }
-        
-        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-            
-        }
-        
-        // Handle console.log messages from JavaScript
-        func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-            if message.name == "logging" {
-                
-            } else if message.name == "loading" {
-                if let text = message.body as? String, text == "modelLoaded" {
-                    
-                    onModelReady()
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Costume Bottom Sheet
-private struct CostumeSheetView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var isLoading: Bool = false
-    @State private var errorMessage: String? = nil
-    @State private var items: [CostumeItem] = []
-    var characterId: String = "74432746-0bab-4972-a205-9169bece07f9"
-    let onSelect: (CostumeItem) -> Void
-
-    private let grid = [
-        GridItem(.flexible(), spacing: 14, alignment: .top),
-        GridItem(.flexible(), spacing: 14, alignment: .top),
-        GridItem(.flexible(), spacing: 14, alignment: .top)
-    ]
-
-    var body: some View {
-        NavigationStack {
-            Group {
-                if isLoading {
-                    ProgressView().tint(.white)
-                } else if let errorMessage {
-                    VStack(spacing: 10) {
-                        Text("Failed to load")
-                            .foregroundStyle(.white)
-                        Text(errorMessage)
-                            .foregroundStyle(.white.opacity(0.7))
-                            .font(.footnote)
-                        Button("Retry") { 
-                            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                            impactFeedback.impactOccurred()
-                            load() 
-                        }
-                    }
-                } else if items.isEmpty {
-                    VStack(spacing: 10) {
-                        Text("No costumes")
-                            .foregroundStyle(.white.opacity(0.8))
-                        Button("Reload") { 
-                            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                            impactFeedback.impactOccurred()
-                            load() 
-                        }
-                    }
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: grid, spacing: 14) {
-                            ForEach(items) { item in
-                                Button {
-                                    let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                                    impactFeedback.impactOccurred()
-                                    onSelect(item)
-                                    dismiss()
-                                } label: {
-                                    VStack(spacing: 8) {
-                                        ZStack {
-                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                .fill(Color.white.opacity(0.06))
-                                                .aspectRatio(1, contentMode: .fit)
-                                            if let t = item.thumbnail, let u = URL(string: t) {
-                                                AsyncImage(url: u) { phase in
-                                                    switch phase {
-                                                    case .success(let image):
-                                                        image.resizable().scaledToFill()
-                                                    case .empty:
-                                                        ProgressView().tint(.white)
-                                                    case .failure(_):
-                                                        Color.white.opacity(0.06)
-                                                    @unknown default:
-                                                        Color.white.opacity(0.06)
-                                                    }
-                                                }
-                                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                                .aspectRatio(1, contentMode: .fit)
-                                            }
-                                        }
-                                        Text(item.costume_name)
-                                            .font(.footnote)
-                                            .foregroundStyle(.white)
-                                            .lineLimit(1)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-                        .padding(.bottom, 24)
-                    }
-                    .background(Color.clear.ignoresSafeArea())
-                }
-            }
-            .background(.ultraThinMaterial.opacity(0.6))
-            .navigationTitle("Change Costume")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { 
-                    Button("Done") { 
-                        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                        impactFeedback.impactOccurred()
-                        dismiss() 
-                    } 
-                }
-            }
-        }
-        .onAppear { if items.isEmpty { load() } }
-    }
-
-    private func load() {
-        guard !isLoading else { return }
-        isLoading = true
-        errorMessage = nil
-        items.removeAll()
-        let effectiveId = characterId.isEmpty ? "74432746-0bab-4972-a205-9169bece07f9" : characterId
-        let urlString = "https://n8n8n.top/webhook/costumes?character_id=\(effectiveId)"
-        guard let url = URL(string: urlString) else { isLoading = false; return }
-        URLSession.shared.dataTask(with: url) { data, response, error in
-            DispatchQueue.main.async {
-                isLoading = false
-                if let error = error { errorMessage = error.localizedDescription; return }
-                guard let data = data else { errorMessage = "No data"; return }
-                do {
-                    let decoded = try JSONDecoder().decode([CostumeItem].self, from: data)
-                    items = decoded
-                } catch {
-                    errorMessage = "Decoding error: \(error.localizedDescription)"
-                }
-            }
-        }.resume()
-    }
-}
-
-// MARK: - Room Bottom Sheet
-private struct RoomSheetView: View {
-    @Environment(\.dismiss) private var dismiss
-    @State private var isLoading: Bool = false
-    @State private var errorMessage: String? = nil
-    @State private var items: [RoomItem] = []
-    let onSelect: (RoomItem) -> Void
-
-    private let grid = [
-        GridItem(.flexible(), spacing: 14, alignment: .top),
-        GridItem(.flexible(), spacing: 14, alignment: .top),
-        GridItem(.flexible(), spacing: 14, alignment: .top)
-    ]
-
-    var body: some View {
-        NavigationStack {
-            Group {
-                if isLoading {
-                    ProgressView().tint(.white)
-                } else if let errorMessage {
-                    VStack(spacing: 10) {
-                        Text("Failed to load")
-                            .foregroundStyle(.white)
-                        Text(errorMessage)
-                            .foregroundStyle(.white.opacity(0.7))
-                            .font(.footnote)
-                        Button("Retry") { 
-                            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                            impactFeedback.impactOccurred()
-                            load() 
-                        }
-                    }
-                } else if items.isEmpty {
-                    VStack(spacing: 10) {
-                        Text("No rooms")
-                            .foregroundStyle(.white.opacity(0.8))
-                        Button("Reload") { 
-                            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                            impactFeedback.impactOccurred()
-                            load() 
-                        }
-                    }
-                } else {
-                    ScrollView {
-                        LazyVGrid(columns: grid, spacing: 14) {
-                            ForEach(items) { item in
-                                Button {
-                                    let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                                    impactFeedback.impactOccurred()
-                                    onSelect(item)
-                                    dismiss()
-                                } label: {
-                                    VStack(spacing: 8) {
-                                        ZStack {
-                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                .fill(Color.white.opacity(0.06))
-                                                .aspectRatio(1, contentMode: .fit)
-                                            if let t = item.thumbnail, let u = URL(string: t) {
-                                                AsyncImage(url: u) { phase in
-                                                    switch phase {
-                                                    case .success(let image):
-                                                        image.resizable().scaledToFill()
-                                                    case .empty:
-                                                        ProgressView().tint(.white)
-                                                    case .failure(_):
-                                                        Color.white.opacity(0.06)
-                                                    @unknown default:
-                                                        Color.white.opacity(0.06)
-                                                    }
-                                                }
-                                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                                .aspectRatio(1, contentMode: .fit)
-                                            }
-                                        }
-                                        Text(item.name)
-                                            .font(.footnote)
-                                            .foregroundStyle(.white)
-                                            .lineLimit(1)
-                                    }
-                                }
-                                .buttonStyle(.plain)
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 12)
-                        .padding(.bottom, 24)
-                    }
-                    .background(Color.clear.ignoresSafeArea())
-                }
-            }
-            .background(.ultraThinMaterial.opacity(0.6))
-            .navigationTitle("Change Room")
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) { 
-                    Button("Done") { 
-                        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                        impactFeedback.impactOccurred()
-                        dismiss() 
-                    } 
-                }
-            }
-        }
-        .onAppear { if items.isEmpty { load() } }
-    }
-
-    private func load() {
-        guard !isLoading else { return }
-        isLoading = true
-        errorMessage = nil
-        items.removeAll()
-        let urlString = "https://n8n8n.top/webhook/rooms"
-        guard let url = URL(string: urlString) else { isLoading = false; return }
-        URLSession.shared.dataTask(with: url) { data, response, error in
-            DispatchQueue.main.async {
-                isLoading = false
-                if let error = error { errorMessage = error.localizedDescription; return }
-                guard let data = data else { errorMessage = "No data"; return }
-                do {
-                    let decoded = try JSONDecoder().decode([RoomItem].self, from: data)
-                    items = decoded
-                } catch {
-                    errorMessage = "Decoding error: \(error.localizedDescription)"
-                }
-            }
-        }.resume()
-    }
-}
+// moved to UIComponents.swift
 
 // ContentView - UPDATED FOR FULLSCREEN
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var webViewRef: WKWebView? = nil
     @State private var chatText: String = ""
     @State private var selectedTab: String = "Play"
@@ -448,25 +22,89 @@ struct ContentView: View {
     @State private var currentCharacterId: String = "74432746-0bab-4972-a205-9169bece07f9"
     @State private var isBgmOn: Bool = true
     @State private var chatMessages: [String] = []
+    // Characters for swipe navigation
+    @State private var allCharacters: [CharacterItem] = []
+    @State private var currentCharacterIndex: Int = 0
+    // Parallax controller
+    @State private var parallaxController: ParallaxController? = nil
+    // Toast for save confirmation
+    @State private var showSavedToast: Bool = false
     var body: some View {
         NavigationStack {
             VRMWebView(htmlFileName: "index", webView: $webViewRef, onModelReady: onModelReady)
                 .ignoresSafeArea()
+                .highPriorityGesture(
+                    DragGesture(minimumDistance: 20, coordinateSpace: .local)
+                        .onEnded { value in
+                            let dx = value.translation.width
+                            let dy = value.translation.height
+                            let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                            // Horizontal swipe -> change background
+                            if abs(dx) > abs(dy), abs(dx) > 40 {
+                                impactFeedback.impactOccurred()
+                                if dx < 0 {
+                                    webViewRef?.evaluateJavaScript("window.nextBackground&&window.nextBackground();")
+                                } else {
+                                    webViewRef?.evaluateJavaScript("window.prevBackground&&window.prevBackground();")
+                                }
+                                // Capture and persist current background after transition
+                                DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                                    captureAndSaveCurrentBackground()
+                                }
+                            }
+                            // Vertical swipe -> change character (random)
+                            else if abs(dy) > 40 {
+                                impactFeedback.impactOccurred()
+                                changeCharacter(by: dy < 0 ? 1 : -1)
+                            }
+                        }
+                )
                 .onAppear {
                     let files = FileDiscovery.discoverFiles()
                     _ = files
                     webViewRef?.evaluateJavaScript("(function(){try{return window.setBgm&&window.setBgm(true);}catch(e){return false}})();") { _, _ in }
                     // Prefetch character thumbnails for faster grid loading
                     prefetchCharacterThumbnails()
+                    // Fetch characters list for swipe up/down navigation
+                    fetchCharactersList()
                     // Prefetch default character's costume thumbnails
                     prefetchCostumeThumbnails(for: currentCharacterId)
                     // Prefetch room thumbnails for faster room sheet loading
                     prefetchRoomThumbnails()
+                    // Start parallax updates
+                    if parallaxController == nil {
+                        let controller = ParallaxController { dx, dy in
+                            let js = "window.applyParallax&&window.applyParallax(\(Int(dx)),\(Int(dy)));"
+                            webViewRef?.evaluateJavaScript(js)
+                        }
+                        parallaxController = controller
+                        controller.start()
+                    }
                     // Sync initial BGM state
                     webViewRef?.evaluateJavaScript("(function(){try{return window.isBgmPlaying&&window.isBgmPlaying();}catch(e){return false}})();") { result, _ in
                         if let playing = result as? Bool {
                             DispatchQueue.main.async { self.isBgmOn = playing }
                         }
+                    }
+                    // Apply persisted background if present and not already applied by injection
+                    if let bg = UserDefaults.standard.string(forKey: PersistKeys.backgroundURL), !bg.isEmpty {
+                        let escaped = bg.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+                        let js = "(function(){try{if(!window.__bgApplied){document.body.style.backgroundImage=\"url('\(escaped)')\";window.__bgApplied=true;}}catch(e){}})();"
+                        webViewRef?.evaluateJavaScript(js)
+                    }
+                }
+                .onChange(of: scenePhase) { _, newPhase in
+                    switch newPhase {
+                    case .active:
+                        // Resume parallax
+                        parallaxController?.start()
+                    case .inactive, .background:
+                        // Pause background music in the web view when app not active
+                        webViewRef?.evaluateJavaScript("(function(){try{return window.setBgm&&window.setBgm(false);}catch(e){return false}})();")
+                        parallaxController?.stop()
+                    @unknown default:
+                        webViewRef?.evaluateJavaScript("(function(){try{return window.setBgm&&window.setBgm(false);}catch(e){return false}})();")
+                        parallaxController?.stop()
                     }
                 }
                 .background(
@@ -483,8 +121,15 @@ struct ContentView: View {
                                     let nameEscaped = item.name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
                                     let js = "window.loadModelByURL(\"\(escaped)\", \"\(nameEscaped)\");"
                                     webViewRef?.evaluateJavaScript(js)
+                                persistCharacter(id: item.id)
+                                persistModel(url: url, name: item.name)
                                 } else {
-                                    
+                                // No direct URL; rely on model name mapping if provided elsewhere
+                                persistCharacter(id: item.id)
+                                }
+                                // Sync swipe index
+                                if let idx = allCharacters.firstIndex(where: { $0.id == item.id }) {
+                                    currentCharacterIndex = idx
                                 }
                             }
                             .preferredColorScheme(.dark)
@@ -557,46 +202,59 @@ struct ContentView: View {
                         .buttonStyle(.glass)
                         .buttonBorderShape(.circle)
                         .clipShape(Circle())
+
+                        // Camera capture button
+                        Button(action: {
+                            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+                            impactFeedback.impactOccurred()
+                            captureAndSaveSnapshot()
+                        }) {
+                            Image(systemName: "camera")
+                                .font(.system(size: 14, weight: .semibold))
+                                .frame(width: 32, height: 32)
+                                .contentShape(Circle())
+                        }
+                        .buttonStyle(.glass)
+                        .buttonBorderShape(.circle)
+                        .clipShape(Circle())
                     }
                     .padding(.trailing, 8)
                     .padding(.top, 6)
+                }
+                .overlay(alignment: .top) {
+                    if showSavedToast {
+                        Text("Saved to Photos")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(.black)
+                            .padding(.horizontal, 18)
+                            .padding(.vertical, 10)
+                            .background(Color.white)
+                            .clipShape(Capsule())
+                            .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 2)
+                            .padding(.top, 0)
+                            .offset(y: -16)
+                    }
                 }
                 .overlay(alignment: .bottom) {
                     VStack(spacing: 8) {
                         // Live chat messages list - vertical, bottom aligned, fades when older
                         if !chatMessages.isEmpty {
-                            ScrollViewReader { proxy in
-                                ScrollView(.vertical, showsIndicators: false) {
-                                    LazyVStack(alignment: .leading, spacing: 6) {
-                                        ForEach(chatMessages.indices, id: \.self) { index in
-                                            Text(chatMessages[index])
-                                                .font(.system(size: 13, weight: .medium))
-                                                .foregroundStyle(.white)
-                                                .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 1)
-                                                .opacity(calculateOpacity(for: index))
-                                                .id(index)
-                                        }
-                                    }
-                                    // Ensure the stack is at least the chat area height and pinned to bottom when few messages
-                                    .frame(minHeight: 200, alignment: .bottomLeading)
-                                    .padding(.horizontal, 28)
-                                    .padding(.bottom, 2)
-                                }
-                                .frame(height: 200)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .onAppear {
-                                    if let last = chatMessages.indices.last {
-                                        proxy.scrollTo(last, anchor: .bottom)
-                                    }
-                                }
-                                .onChange(of: chatMessages.count) { _, _ in
-                                    if let last = chatMessages.indices.last {
-                                        withAnimation(.easeOut(duration: 0.2)) {
-                                            proxy.scrollTo(last, anchor: .bottom)
-                                        }
-                                    }
+                            // Non-scrollable chat list to avoid gesture conflicts; bottom-aligned
+                            LazyVStack(alignment: .leading, spacing: 6) {
+                                ForEach(chatMessages.indices, id: \.self) { index in
+                                    Text(chatMessages[index])
+                                        .font(.system(size: 13, weight: .medium))
+                                        .foregroundStyle(.white)
+                                        .shadow(color: .black.opacity(0.3), radius: 1, x: 0, y: 1)
+                                        .opacity(calculateOpacity(for: index))
                                 }
                             }
+                            .frame(height: 200, alignment: .bottomLeading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 28)
+                            .padding(.bottom, 2)
+                            .clipped()
+                            .allowsHitTesting(false)
                         }
                         
                         // Preset quick message chips
@@ -675,6 +333,9 @@ struct ContentView: View {
                                 }
                             }
                         }) { Image(systemName: isBgmOn ? "speaker.wave.2.fill" : "speaker.slash.fill") }
+                        .padding(6)
+                        .background(Color.white.opacity(0.05))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
                     ToolbarItem(placement: .principal) {
                         Picker("Mode", selection: $selectedTab) {
@@ -707,6 +368,9 @@ struct ContentView: View {
                         }) {
                             Image(systemName: "square.grid.2x2.fill")
                         }
+                        .padding(6)
+                        .background(Color.white.opacity(0.05))
+                        .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
                     }
 
                     ToolbarItemGroup(placement: .bottomBar) {
@@ -740,6 +404,7 @@ struct ContentView: View {
                                 .replacingOccurrences(of: "\"", with: "\\\"")
                             let js = "window.loadModelByURL(\"\(escaped)\", \"\(costume.costume_name)\");"
                             webViewRef?.evaluateJavaScript(js)
+                            persistModel(url: directURL, name: costume.costume_name)
                         } else {
                             let modelName = costume.url + ".vrm"
                             let escaped = modelName
@@ -747,11 +412,14 @@ struct ContentView: View {
                                 .replacingOccurrences(of: "\"", with: "\\\"")
                             let js = "window.loadModelByName(\"\(escaped)\");"
                             webViewRef?.evaluateJavaScript(js)
+                            persistModel(url: nil, name: modelName)
                         }
                     }
+                    // Ensure the sheet refreshes when the current character changes (e.g., via swipe)
+                    .id(currentCharacterId)
                     .preferredColorScheme(.dark)
                     .presentationDetents([.fraction(0.35), .large])
-                    .presentationBackground(.ultraThinMaterial.opacity(0.6))
+                    .presentationBackground(.ultraThinMaterial.opacity(0.2))
                 }
                 .sheet(isPresented: $showRoomSheet) {
                     RoomSheetView { room in
@@ -761,10 +429,11 @@ struct ContentView: View {
                             .replacingOccurrences(of: "\"", with: "\\\"")
                         let js = "document.body.style.backgroundImage = `url('\(escapedImage)')`;"
                         webViewRef?.evaluateJavaScript(js)
+                        persistBackground(url: room.image)
                     }
                     .preferredColorScheme(.dark)
                     .presentationDetents([.fraction(0.35), .large])
-                    .presentationBackground(.ultraThinMaterial.opacity(0.6))
+                    .presentationBackground(.ultraThinMaterial.opacity(0.2))
                 }
         }
     }
@@ -787,6 +456,97 @@ struct ContentView: View {
         // webViewRef?.evaluateJavaScript("sendMessage('\(message)');")
     }
 
+    private func fetchCharactersList() {
+        guard allCharacters.isEmpty else { return }
+        var request = URLRequest(url: URL(string: "https://n8n8n.top/webhook/characters")!)
+        request.httpMethod = "GET"
+        URLSession.shared.dataTask(with: request) { data, _, _ in
+            guard let data = data else { return }
+            if let items = try? JSONDecoder().decode([CharacterItem].self, from: data) {
+                DispatchQueue.main.async {
+                    self.allCharacters = items
+                    if let idx = items.firstIndex(where: { $0.id == self.currentCharacterId }) {
+                        self.currentCharacterIndex = idx
+                    } else {
+                        self.currentCharacterIndex = 0
+                    }
+                }
+            }
+        }.resume()
+    }
+
+    private func changeCharacter(by delta: Int) {
+        guard !allCharacters.isEmpty else { return }
+        let count = allCharacters.count
+        var newIndex = (currentCharacterIndex + delta) % count
+        if newIndex < 0 { newIndex += count }
+        let item = allCharacters[newIndex]
+        currentCharacterIndex = newIndex
+        currentCharacterId = item.id
+        // Preload costumes for the new character
+        prefetchCostumeThumbnails(for: item.id)
+        // Load model by URL if available
+        if let url = item.base_model_url, !url.isEmpty {
+            let escaped = url.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+            let nameEscaped = item.name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+            let js = "window.loadModelByURL(\"\(escaped)\", \"\(nameEscaped)\");"
+            webViewRef?.evaluateJavaScript(js)
+        }
+    }
+
+    // MARK: - Snapshot and save to Photos
+    private func captureAndSaveSnapshot() {
+        guard let webView = webViewRef else { return }
+        let config = WKSnapshotConfiguration()
+        config.rect = webView.bounds
+        config.afterScreenUpdates = true
+        webView.takeSnapshot(with: config) { image, error in
+            guard let image = image else { return }
+            if #available(iOS 14, *) {
+                PHPhotoLibrary.requestAuthorization(for: .addOnly) { status in
+                    if status == .authorized || status == .limited {
+                        PHPhotoLibrary.shared().performChanges({
+                            PHAssetChangeRequest.creationRequestForAsset(from: image)
+                        }) { success, _ in
+                            if success {
+                                DispatchQueue.main.async {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                                        showSavedToast = true
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                                        withAnimation(.easeOut(duration: 0.25)) {
+                                            showSavedToast = false
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else {
+                PHPhotoLibrary.requestAuthorization { status in
+                    if status == .authorized {
+                        PHPhotoLibrary.shared().performChanges({
+                            PHAssetChangeRequest.creationRequestForAsset(from: image)
+                        }) { success, _ in
+                            if success {
+                                DispatchQueue.main.async {
+                                    withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                                        showSavedToast = true
+                                    }
+                                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.6) {
+                                        withAnimation(.easeOut(duration: 0.25)) {
+                                            showSavedToast = false
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
     private func calculateOpacity(for index: Int) -> Double {
         let total = chatMessages.count
         // Start fading older messages; most recent ~4 stay strong
@@ -926,15 +686,27 @@ private struct CharactersView: View {
     }
 }
 
-// MARK: - Thumbnail Prefetcher
-private enum ImagePrefetcher {
-    static func prefetch(urls: [URL]) {
-        let session = URLSession.shared
-        for url in urls { session.dataTask(with: url) { _, _, _ in }.resume() }
-    }
-}
+// moved to UIComponents.swift
 
 private extension ContentView {
+    func persistCharacter(id: String) {
+        UserDefaults.standard.set(id, forKey: PersistKeys.characterId)
+    }
+    func persistModel(url: String?, name: String?) {
+        if let url = url { UserDefaults.standard.set(url, forKey: PersistKeys.modelURL) } else { UserDefaults.standard.removeObject(forKey: PersistKeys.modelURL) }
+        if let name = name { UserDefaults.standard.set(name, forKey: PersistKeys.modelName) }
+    }
+    func persistBackground(url: String) {
+        UserDefaults.standard.set(url, forKey: PersistKeys.backgroundURL)
+    }
+    func captureAndSaveCurrentBackground() {
+        let js = "(function(){try{const s=getComputedStyle(document.body).backgroundImage;const m=s&&s.match(/url\\(\\\"?([^\\\"]+)\\\"?\\)/);return m?m[1]:'';}catch(e){return ''}})();"
+        webViewRef?.evaluateJavaScript(js) { result, _ in
+            if let url = result as? String, !url.isEmpty {
+                persistBackground(url: url)
+            }
+        }
+    }
     func prefetchCharacterThumbnails() {
         guard let url = URL(string: "https://n8n8n.top/webhook/characters") else { return }
         URLSession.shared.dataTask(with: url) { data, _, _ in
@@ -972,96 +744,9 @@ private extension ContentView {
     }
 }
 
-// MARK: - Placeholder Page
-private struct PlaceholderView: View {
-    let title: String
-    var body: some View {
-        ZStack {
-            Color.black.ignoresSafeArea()
-            Text("Function is under development")
-                .foregroundStyle(.white)
-                .font(.headline)
-        }
-        .navigationTitle(title)
-    }
-}
+// moved to UIComponents.swift
 
-// MARK: - Skeleton Loading Views
-private struct SkeletonCharacterCardView: View {
-    private let cornerRadius: CGFloat = 20
-    private let horizontalPadding: CGFloat = 16
-    private let interItemSpacing: CGFloat = 16
-    private let contentPadding: CGFloat = 16
-    @State private var animate: Bool = false
-
-    var body: some View {
-        let screenWidth = UIScreen.main.bounds.width
-        let targetWidth = max(0, (screenWidth - horizontalPadding * 2 - interItemSpacing) / 2.0)
-
-        ZStack(alignment: .bottomLeading) {
-            // Base card background
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .fill(Color.white.opacity(0.06))
-
-            // Subtle bottom gradient to mimic content overlay area
-            LinearGradient(
-                colors: [Color.black.opacity(0.0), Color.black.opacity(0.35)],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-            .frame(maxWidth: .infinity)
-            .frame(height: 180)
-            .frame(maxHeight: .infinity, alignment: .bottom)
-            .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-
-            // Title and description bars
-            VStack(alignment: .leading, spacing: 10) {
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.white.opacity(0.14))
-                    .frame(height: 18)
-                RoundedRectangle(cornerRadius: 6)
-                    .fill(Color.white.opacity(0.10))
-                    .frame(width: targetWidth * 0.6, height: 12)
-            }
-            .padding(.horizontal, contentPadding + 20)
-            .padding(.bottom, contentPadding + 10)
-
-            // Shimmer overlay across the whole card
-            shimmer
-                .clipShape(RoundedRectangle(cornerRadius: cornerRadius, style: .continuous))
-                .allowsHitTesting(false)
-        }
-        .frame(width: targetWidth, height: targetWidth * 1.3)
-        .overlay(
-            RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
-                .stroke(Color.white.opacity(0.06), lineWidth: 1)
-        )
-        .onAppear {
-            withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) {
-                animate = true
-            }
-        }
-    }
-
-    private var shimmer: some View {
-        GeometryReader { geo in
-            let width = geo.size.width
-            LinearGradient(
-                gradient: Gradient(stops: [
-                    .init(color: Color.white.opacity(0.0), location: 0.0),
-                    .init(color: Color.white.opacity(0.18), location: 0.5),
-                    .init(color: Color.white.opacity(0.0), location: 1.0)
-                ]),
-                startPoint: .leading,
-                endPoint: .trailing
-            )
-            .frame(width: width * 0.6)
-            .offset(x: animate ? width : -width)
-            .blendMode(.plusLighter)
-        }
-        .opacity(0.55)
-    }
-}
+// moved to UIComponents.swift
 
 // No custom floating buttons; using default Toolbar items above
 
