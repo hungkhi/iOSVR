@@ -1,5 +1,4 @@
 import SwiftUI
-import SupabaseAPI
 
 // MARK: - Costume Bottom Sheet
 struct CostumeSheetView: View {
@@ -80,17 +79,21 @@ struct CostumeSheetView: View {
         errorMessage = nil
         items.removeAll()
         let effectiveId = characterId.isEmpty ? "74432746-0bab-4972-a205-9169bece07f9" : characterId
-        SupabaseAPI.getCostumes(for: effectiveId) { result in
+        // Supabase query
+        let query: [URLQueryItem] = [
+            URLQueryItem(name: "character_id", value: "eq.\(effectiveId)"),
+            URLQueryItem(name: "select", value: "id,character_id,costume_name,url,thumbnail,model_url"),
+            URLQueryItem(name: "order", value: "created_at.desc")
+        ]
+        guard let request = makeSupabaseRequest(path: "/rest/v1/character_costumes", queryItems: query) else { isLoading = false; errorMessage = "Failed to build Supabase costume query"; return }
+        URLSession.shared.dataTask(with: request) { data, response, error in
             DispatchQueue.main.async {
                 isLoading = false
-                switch result {
-                case .success(let decoded):
-                    items = decoded
-                case .failure(let error):
-                    errorMessage = error.localizedDescription
-                }
+                if let error = error { errorMessage = error.localizedDescription; return }
+                guard let data = data else { errorMessage = "No data"; return }
+                do { let decoded = try JSONDecoder().decode([CostumeItem].self, from: data); items = decoded } catch { errorMessage = "Decoding error: \(error.localizedDescription)" }
             }
-        }
+        }.resume()
     }
 }
 

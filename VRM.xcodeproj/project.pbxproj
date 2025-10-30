@@ -8,6 +8,12 @@
 
 /* Begin PBXBuildFile section */
 		6760A9982EB23AA1006C75DB /* ElevenLabs in Frameworks */ = {isa = PBXBuildFile; productRef = 6760A9972EB23AA1006C75DB /* ElevenLabs */; };
+		677D9A2F2EB3BD620046907F /* Auth in Frameworks */ = {isa = PBXBuildFile; productRef = 677D9A2E2EB3BD620046907F /* Auth */; };
+		677D9A312EB3BD620046907F /* Functions in Frameworks */ = {isa = PBXBuildFile; productRef = 677D9A302EB3BD620046907F /* Functions */; };
+		677D9A332EB3BD620046907F /* PostgREST in Frameworks */ = {isa = PBXBuildFile; productRef = 677D9A322EB3BD620046907F /* PostgREST */; };
+		677D9A352EB3BD620046907F /* Realtime in Frameworks */ = {isa = PBXBuildFile; productRef = 677D9A342EB3BD620046907F /* Realtime */; };
+		677D9A372EB3BD620046907F /* Storage in Frameworks */ = {isa = PBXBuildFile; productRef = 677D9A362EB3BD620046907F /* Storage */; };
+		677D9A662EB3BE750046907F /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 677D9A652EB3BE750046907F /* Supabase */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -40,6 +46,12 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				677D9A662EB3BE750046907F /* Supabase in Frameworks */,
+				677D9A372EB3BD620046907F /* Storage in Frameworks */,
+				677D9A332EB3BD620046907F /* PostgREST in Frameworks */,
+				677D9A312EB3BD620046907F /* Functions in Frameworks */,
+				677D9A2F2EB3BD620046907F /* Auth in Frameworks */,
+				677D9A352EB3BD620046907F /* Realtime in Frameworks */,
 				6760A9982EB23AA1006C75DB /* ElevenLabs in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -47,10 +59,18 @@
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
+		677D9A642EB3BE750046907F /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
+			sourceTree = "<group>";
+		};
 		67C3FD222EAFB43C00F1A22B = {
 			isa = PBXGroup;
 			children = (
 				67C3FD2D2EAFB43C00F1A22B /* VRM */,
+				677D9A642EB3BE750046907F /* Frameworks */,
 				67C3FD2C2EAFB43C00F1A22B /* Products */,
 			);
 			sourceTree = "<group>";
@@ -84,6 +104,12 @@
 			name = VRM;
 			packageProductDependencies = (
 				6760A9972EB23AA1006C75DB /* ElevenLabs */,
+				677D9A2E2EB3BD620046907F /* Auth */,
+				677D9A302EB3BD620046907F /* Functions */,
+				677D9A322EB3BD620046907F /* PostgREST */,
+				677D9A342EB3BD620046907F /* Realtime */,
+				677D9A362EB3BD620046907F /* Storage */,
+				677D9A652EB3BE750046907F /* Supabase */,
 			);
 			productName = VRM;
 			productReference = 67C3FD2B2EAFB43C00F1A22B /* VRM.app */;
@@ -115,6 +141,7 @@
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
 				6760A9962EB23AA1006C75DB /* XCRemoteSwiftPackageReference "elevenlabs-swift-sdk" */,
+				677D99FF2EB3BABB0046907F /* XCRemoteSwiftPackageReference "supabase-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 67C3FD2C2EAFB43C00F1A22B /* Products */;
@@ -273,6 +300,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = VRM/VRM.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 6BZ59393SB;
@@ -306,6 +334,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = VRM/VRM.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 6BZ59393SB;
@@ -366,6 +395,14 @@
 				kind = branch;
 			};
 		};
+		677D99FF2EB3BABB0046907F /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/supabase-community/supabase-swift";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 2.5.1;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -373,6 +410,36 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 6760A9962EB23AA1006C75DB /* XCRemoteSwiftPackageReference "elevenlabs-swift-sdk" */;
 			productName = ElevenLabs;
+		};
+		677D9A2E2EB3BD620046907F /* Auth */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 677D99FF2EB3BABB0046907F /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Auth;
+		};
+		677D9A302EB3BD620046907F /* Functions */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 677D99FF2EB3BABB0046907F /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Functions;
+		};
+		677D9A322EB3BD620046907F /* PostgREST */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 677D99FF2EB3BABB0046907F /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = PostgREST;
+		};
+		677D9A342EB3BD620046907F /* Realtime */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 677D99FF2EB3BABB0046907F /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Realtime;
+		};
+		677D9A362EB3BD620046907F /* Storage */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 677D99FF2EB3BABB0046907F /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Storage;
+		};
+		677D9A652EB3BE750046907F /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 677D99FF2EB3BABB0046907F /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};

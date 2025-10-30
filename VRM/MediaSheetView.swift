@@ -1,6 +1,5 @@
 import SwiftUI
 import AVKit
-import SupabaseAPI
 // Simple shared cache to keep AVPlayer alive across view lifecycle (prevents black flash)
 private final class PlayerCache {
     static let shared = PlayerCache()
@@ -103,18 +102,26 @@ struct MediaSheetView: View {
         errorMessage = nil
         items.removeAll()
         let effectiveId = characterId
-        SupabaseAPI.getMedias(for: effectiveId) { result in
+        let query: [URLQueryItem] = [
+            URLQueryItem(name: "character_id", value: "eq.\(effectiveId)"),
+            URLQueryItem(name: "select", value: "id,url,thumbnail,character_id,created_at"),
+            URLQueryItem(name: "order", value: "created_at.desc")
+        ]
+        guard let request = makeSupabaseRequest(path: "/rest/v1/medias", queryItems: query) else { isLoading = false; errorMessage = "Failed to build Supabase media query"; return }
+        URLSession.shared.dataTask(with: request) { data, _, error in
             DispatchQueue.main.async {
                 isLoading = false
-                switch result {
-                case .success(let decoded):
+                if let error { errorMessage = error.localizedDescription; return }
+                guard let data else { errorMessage = "No data"; return }
+                do {
+                    let decoded = try JSONDecoder().decode([MediaItem].self, from: data)
                     items = decoded
                     prefetch(items: decoded)
-                case .failure(let error):
+                } catch {
                     errorMessage = error.localizedDescription
                 }
             }
-        }
+        }.resume()
     }
 
     private func prefetch(items: [MediaItem]) {
