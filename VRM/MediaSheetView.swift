@@ -105,7 +105,7 @@ struct MediaSheetView: View {
         let query: [URLQueryItem] = [
             URLQueryItem(name: "character_id", value: "eq.\(effectiveId)"),
             URLQueryItem(name: "select", value: "id,url,thumbnail,character_id,created_at"),
-            URLQueryItem(name: "order", value: "created_at.desc")
+            URLQueryItem(name: "order", value: "created_at.asc")
         ]
         guard let request = makeSupabaseRequest(path: "/rest/v1/medias", queryItems: query) else { isLoading = false; errorMessage = "Failed to build Supabase media query"; return }
         URLSession.shared.dataTask(with: request) { data, _, error in

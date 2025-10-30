@@ -79,7 +79,7 @@ struct CharactersView: View {
                 }
             }
         }
-        .navigationTitle("Characters")
+        .navigationTitle("Girl friends")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {

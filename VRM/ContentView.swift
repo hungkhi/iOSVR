@@ -43,6 +43,21 @@ struct ContentView: View {
     @State private var showMediaSheet: Bool = false
     @State private var currentAgentId: String = ""
     @StateObject private var authManager = AuthManager.shared
+    // Synchronize model loading with background changes
+    @State private var isModelLoading: Bool = false
+    @State private var pendingBackgroundImage: String? = nil
+    @State private var pendingRoomNameQueued: String? = nil
+    // Age gate
+    @AppStorage("ageVerified18") private var ageVerified18: Bool = false
+    @State private var showAgeConfirm: Bool = false
+    @State private var showAgeBlocked: Bool = false
+    // Settings toggles
+    @AppStorage("settings.hapticsEnabled") private var hapticsEnabled: Bool = true
+    @AppStorage("settings.autoPlayMusic") private var autoPlayMusic: Bool = false
+    @AppStorage("settings.autoEnterTalking") private var autoEnterTalking: Bool = false
+    // Display name prompt
+    @State private var showNamePrompt: Bool = false
+    @State private var pendingDisplayName: String = ""
     var body: some View {
         NavigationStack {
             if authManager.session == nil && !authManager.isGuest {
@@ -60,7 +75,7 @@ struct ContentView: View {
                             .foregroundColor(.red)
                     }
                     Button {
-                        authManager.signInWithApple()
+                        if ageVerified18 { authManager.signInWithApple() } else { showAgeConfirm = true }
                     } label: {
                         HStack {
                             Image(systemName: "applelogo")
@@ -72,9 +87,9 @@ struct ContentView: View {
                         .background(Color.black.opacity(0.92))
                         .cornerRadius(12)
                     }
-                    .disabled(authManager.isLoading)
+                    .disabled(authManager.isLoading || !ageVerified18)
                     Button {
-                        authManager.continueAsGuest()
+                        if ageVerified18 { authManager.continueAsGuest() } else { showAgeConfirm = true }
                     } label: {
                         HStack {
                             Image(systemName: "person.fill.questionmark")
@@ -86,11 +101,23 @@ struct ContentView: View {
                         .background(Color.gray.opacity(0.4))
                         .cornerRadius(12)
                     }
-                    .disabled(authManager.isLoading)
+                    .disabled(authManager.isLoading || !ageVerified18)
                     Spacer()
                 }
                 .background(Color.black.ignoresSafeArea())
-                .onAppear { onModelReady() }
+                .onAppear { 
+                    onModelReady()
+                    if !ageVerified18 { showAgeConfirm = true }
+                }
+                .alert("Are you 18 or older?", isPresented: $showAgeConfirm) {
+                    Button("I'm under 18", role: .destructive) { showAgeBlocked = true }
+                    Button("Yes, I am 18+", role: .cancel) { ageVerified18 = true }
+                } message: {
+                    Text("You must confirm you are 18+ to use this app.")
+                }
+                .alert("Sorry, you must be 18+ to use this app.", isPresented: $showAgeBlocked) {
+                    Button("OK", role: .cancel) { }
+                }
             } else {
                 ZStack {
                     VRMWebView(htmlFileName: "index", webView: $webViewRef, onModelReady: onModelReady)
@@ -100,10 +127,9 @@ struct ContentView: View {
                             .onEnded { value in
                                 let dx = value.translation.width
                                 let dy = value.translation.height
-                                let impactFeedback = UIImpactFeedbackGenerator(style: .light)
+                                triggerHaptic(.light)
                                 // Horizontal swipe -> change background
                                 if abs(dx) > abs(dy), abs(dx) > 40 {
-                                    impactFeedback.impactOccurred()
                                     if dx < 0 {
                                         webViewRef?.evaluateJavaScript("window.nextBackground&&window.nextBackground();")
                                     } else {
@@ -116,7 +142,7 @@ struct ContentView: View {
                                 }
                                 // Vertical swipe -> change character (random)
                                 else if abs(dy) > 40 {
-                                    impactFeedback.impactOccurred()
+                                    triggerHaptic(.light)
                                     changeCharacter(by: dy < 0 ? 1 : -1)
                                 }
                             }
@@ -124,8 +150,14 @@ struct ContentView: View {
                     .onAppear {
                         let files = FileDiscovery.discoverFiles()
                         _ = files
-                        // Ensure background music starts muted by default
-                        webViewRef?.evaluateJavaScript("(function(){try{return window.setBgm&&window.setBgm(false);}catch(e){return false}})();") { _, _ in }
+                        // Respect auto-play setting at launch
+                        if autoPlayMusic {
+                            BackgroundMusicManager.shared.play()
+                            DispatchQueue.main.async { self.isBgmOn = true }
+                        } else {
+                            BackgroundMusicManager.shared.pause()
+                            DispatchQueue.main.async { self.isBgmOn = false }
+                        }
                         // Prefetch character thumbnails for faster grid loading
                         prefetchCharacterThumbnails()
                         // Fetch characters list for swipe up/down navigation
@@ -145,11 +177,7 @@ struct ContentView: View {
                         }
                         // Set local state to muted by default
                         DispatchQueue.main.async { self.isBgmOn = false }
-                        // Seed title from persisted model name if available
-                        if currentCharacterName.isEmpty {
-                            let name = UserDefaults.standard.string(forKey: PersistKeys.modelName) ?? ""
-                            if !name.isEmpty { currentCharacterName = name }
-                        }
+                        // Do not seed title from model name; title should reflect character name only
                         // Seed room name from persistence
                         if currentRoomName.isEmpty {
                             let rn = UserDefaults.standard.string(forKey: PersistKeys.roomName) ?? ""
@@ -158,13 +186,29 @@ struct ContentView: View {
                         // Apply persisted background if present and not already applied by injection
                         if let bg = UserDefaults.standard.string(forKey: PersistKeys.backgroundURL), !bg.isEmpty {
                             let escaped = bg.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-                            let js = "(function(){try{if(!window.__bgApplied){document.body.style.backgroundImage=\"url('\(escaped)')\";window.__bgApplied=true;}}catch(e){}})();"
+                            let js = "(function(){try{if(!window.__bgApplied){document.body.style.backgroundImage=\"url('\\(escaped)')\";window.__bgApplied=true;}}catch(e){}})();"
                             webViewRef?.evaluateJavaScript(js)
                         }
-                        // Agent will be started manually via mic button
+                        // Auto-start conversation if enabled
+                        if autoEnterTalking && !convVM.isConnected {
+                            bootingAgent = true
+                            Task { await convVM.startConversationIfNeeded(agentId: currentAgentId.isEmpty ? elevenLabsAgentId : currentAgentId) }
+                        }
+                        // Agent will be started manually via mic button otherwise
+                    }
+                    // Show name prompt if needed when user becomes available
+                    .onChange(of: authManager.user) { _, newUser in
+                        guard newUser != nil else { return }
+                        if authManager.needsDisplayNamePrompt() {
+                            let fallback = (newUser?.email ?? "").split(separator: "@").first.map(String.init) ?? ""
+                            pendingDisplayName = fallback
+                            showNamePrompt = true
+                        }
                     }
                     // Receive ElevenLabs agent text and append as pink bubbles
                     .onReceive(convVM.agentText) { text in
+                        // Ensure background music stays off whenever agent speaks
+                        muteBgmIfNeeded()
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
                             chatMessages.append(ChatMessage(kind: .text(text), isAgent: true))
                             while chatMessages.count > 5 { chatMessages.removeFirst() }
@@ -179,10 +223,10 @@ struct ContentView: View {
                             parallaxController?.start()
                         case .inactive, .background:
                             // Pause background music in the web view when app not active
-                            webViewRef?.evaluateJavaScript("(function(){try{return window.setBgm&&window.setBgm(false);}catch(e){return false}})();")
+                            BackgroundMusicManager.shared.pause()
                             parallaxController?.stop()
                         @unknown default:
-                            webViewRef?.evaluateJavaScript("(function(){try{return window.setBgm&&window.setBgm(false);}catch(e){return false}})();")
+                            BackgroundMusicManager.shared.pause()
                             parallaxController?.stop()
                         }
                     }
@@ -195,10 +239,7 @@ struct ContentView: View {
                                     applyCharacter(item)
                                     // Load model by URL if available
                                     if let url = item.base_model_url, !url.isEmpty {
-                                        let escaped = url.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-                                        let nameEscaped = item.name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-                                        let js = "window.loadModelByURL(\"\(escaped)\", \"\(nameEscaped)\");"
-                                        webViewRef?.evaluateJavaScript(js)
+                                        loadModelByURLWithSync(url: url, name: item.name)
                                     }
                                 }
                                 .preferredColorScheme(.dark)
@@ -248,19 +289,16 @@ struct ContentView: View {
                         ToolbarItem(placement: .topBarLeading) {
                             HStack(spacing: 8) {
                                 Button(action: {
-                                    let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                                    impactFeedback.impactOccurred()
+                                    triggerHaptic(.medium)
                                     showSettingsSheet = true
                                 }) { Image(systemName: "gearshape.fill") }
+                                .padding(.horizontal, 4)
                                 Button(action: {
-                                    let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                                    impactFeedback.impactOccurred()
-                                    webViewRef?.evaluateJavaScript("(function(){try{return window.toggleBgm&&window.toggleBgm();}catch(e){return false}})();") { result, _ in
-                                        if let playing = result as? Bool {
+                                    triggerHaptic(.medium)
+                                    let playing = BackgroundMusicManager.shared.toggle()
                                             DispatchQueue.main.async { self.isBgmOn = playing }
-                                        }
-                                    }
                                 }) { Image(systemName: isBgmOn ? "speaker.wave.2.fill" : "speaker.slash.fill") }
+                                .padding(.horizontal, 4)
                             }
                         }
                         ToolbarItem(placement: .principal) {
@@ -299,8 +337,7 @@ struct ContentView: View {
                                 
                                 if chatFieldFocused || !chatText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                                     Button(action: {
-                                        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                                        impactFeedback.impactOccurred()
+                                        triggerHaptic(.medium)
                                         let trimmed = chatText.trimmingCharacters(in: .whitespacesAndNewlines)
                                         guard !trimmed.isEmpty else { return }
                                         sendMessage(trimmed)
@@ -311,8 +348,7 @@ struct ContentView: View {
                                     .transition(.opacity.combined(with: .scale))
                                 } else {
                                     Button(action: {
-                                        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                                        impactFeedback.impactOccurred()
+                                        triggerHaptic(.medium)
                                         if convVM.isConnected {
                                             bootingAgent = false
                                             // Append system message and trim to last 5
@@ -353,18 +389,18 @@ struct ContentView: View {
                                     .replacingOccurrences(of: "\\", with: "\\\\")
                                     .replacingOccurrences(of: "\"", with: "\\\"")
                                 let js = "window.loadModelByURL(\"\(escaped)\", \"\(costume.costume_name)\");"
-                                webViewRef?.evaluateJavaScript(js)
+                                loadModelJSWithSync(js)
                                 persistModel(url: directURL, name: costume.costume_name)
-                                upsertUserCharacterPreference(costumeName: costume.costume_name, costumeURL: directURL, roomName: nil, roomImage: nil)
+                                upsertUserCharacterPreference(costumeName: costume.costume_name, costumeURL: directURL, roomName: nil, roomImage: nil, costumeId: costume.id)
                             } else {
                                 let modelName = costume.url + ".vrm"
                                 let escaped = modelName
                                     .replacingOccurrences(of: "\\", with: "\\\\")
                                     .replacingOccurrences(of: "\"", with: "\\\"")
                                 let js = "window.loadModelByName(\"\(escaped)\");"
-                                webViewRef?.evaluateJavaScript(js)
+                                loadModelJSWithSync(js)
                                 persistModel(url: nil, name: modelName)
-                                upsertUserCharacterPreference(costumeName: modelName, costumeURL: nil, roomName: nil, roomImage: nil)
+                                upsertUserCharacterPreference(costumeName: modelName, costumeURL: nil, roomName: nil, roomImage: nil, costumeId: costume.id)
                             }
                         }
                         // Ensure the sheet refreshes when the current character changes (e.g., via swipe)
@@ -379,11 +415,8 @@ struct ContentView: View {
                             let escapedImage = room.image
                                 .replacingOccurrences(of: "\\", with: "\\\\")
                                 .replacingOccurrences(of: "\"", with: "\\\"")
-                            let js = "document.body.style.backgroundImage = `url('\(escapedImage)')`;"
-                            webViewRef?.evaluateJavaScript(js)
-                            persistRoom(name: room.name, url: room.image)
-                            currentRoomName = room.name
-                            upsertUserCharacterPreference(costumeName: nil, costumeURL: nil, roomName: room.name, roomImage: room.image)
+                            requestBackgroundChange(image: room.image, name: room.name)
+                            setUserCurrentRoom(roomId: room.id)
                         }
                         .preferredColorScheme(.dark)
                         .presentationDetents([.fraction(0.35), .large])
@@ -396,31 +429,8 @@ struct ContentView: View {
                             .presentationBackground(.ultraThinMaterial.opacity(0.2))
                     }
                     .sheet(isPresented: $showSettingsSheet) {
-                        VStack {
-                            if let user = authManager.user {
-                                Text("Signed in as\n\(user.email ?? "Unknown")")
-                                    .font(.headline)
-                                    .multilineTextAlignment(.center)
-                                    .padding(.vertical)
-                                Button("Log Out") {
-                                    Task { await authManager.logout() }
-                                }
-                                .foregroundColor(.red)
-                                .padding(.bottom, 24)
-                            } else if authManager.isGuest {
-                                Text("Using Guest Mode")
-                                    .font(.headline)
-                                    .multilineTextAlignment(.center)
-                                    .padding(.vertical)
-                                Button("Exit Guest Mode") {
-                                    Task { await authManager.logout() }
-                                }
-                                .foregroundColor(.red)
-                                .padding(.bottom, 24)
-                            }
-                            PlaceholderView(title: "Settings")
+                        SettingsView(authManager: authManager)
                                 .preferredColorScheme(.dark)
-                        }
                     }
                     if chatFieldFocused {
                         Color.clear
@@ -429,6 +439,35 @@ struct ContentView: View {
                                 chatFieldFocused = false
                             }
                     }
+                }
+                .sheet(isPresented: $showNamePrompt) {
+                    VStack(spacing: 16) {
+                        Text("What should we call you?")
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                        TextField("Your name", text: $pendingDisplayName)
+                            .textInputAutocapitalization(.words)
+                            .submitLabel(.done)
+                            .padding()
+                            .background(Color.white.opacity(0.08))
+                            .cornerRadius(10)
+                            .foregroundStyle(.white)
+                        Button("Save") {
+                            let name = pendingDisplayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                            guard !name.isEmpty else { return }
+                            Task {
+                                await authManager.updateDisplayName(name)
+                                showNamePrompt = false
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.white.opacity(0.12))
+                        .cornerRadius(10)
+                        .foregroundStyle(.white)
+                    }
+                    .padding(20)
+                    .background(Color.black.ignoresSafeArea())
                 }
             }
         }
@@ -460,16 +499,12 @@ struct ContentView: View {
 
     private func persistConversationMessage(text: String, isAgent: Bool) {
         guard !currentCharacterId.isEmpty else { return }
-        let userIdString: String? = {
-            if let anyId = AuthManager.shared.user?.id { return String(describing: anyId) }
-            return nil
-        }()
+        let userIdString: String? = AuthManager.shared.user?.id.uuidString
         let clientId = AuthManager.shared.isGuest ? (UserDefaults.standard.string(forKey: PersistKeys.clientId) ?? ensureClientId()) : nil
         guard let url = URL(string: SUPABASE_URL + "/rest/v1/conversation") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.setValue("Bearer \(SUPABASE_ANON_KEY)", forHTTPHeaderField: "Authorization")
-        req.setValue(SUPABASE_ANON_KEY, forHTTPHeaderField: "apikey")
+        setSupabaseAuthHeaders(&req)
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("return=minimal", forHTTPHeaderField: "Prefer")
         if let cid = clientId { req.setValue(cid, forHTTPHeaderField: "X-Client-Id") }
@@ -502,8 +537,7 @@ struct ContentView: View {
         guard allCharacters.isEmpty else { return }
         let query: [URLQueryItem] = [
             URLQueryItem(name: "select", value: "id,name,description,thumbnail_url,base_model_url,agent_elevenlabs_id"),
-            URLQueryItem(name: "is_public", value: "is.true"),
-            URLQueryItem(name: "order", value: "order.nullsfirst")
+            URLQueryItem(name: "is_public", value: "is.true")
         ]
         guard let request = makeSupabaseRequest(path: "/rest/v1/characters", queryItems: query) else { return }
         URLSession.shared.dataTask(with: request) { data, _, _ in
@@ -539,24 +573,22 @@ struct ContentView: View {
         }
         // Refresh costume thumbnails (will reload sheet if open)
         prefetchCostumeThumbnails(for: item.id)
-        // Persist
+        // Persist selected character id only; defer model/background until prefs load
         persistCharacter(id: item.id)
-        persistModel(url: item.base_model_url, name: item.name)
 
         // Load latest conversation messages for this character
         loadLatestConversation()
 
-        // Load and apply saved outfit and room for this user/guest
-        loadUserCharacterPreference()
+        // Load and apply saved outfit and room first; fallback to character base model if none
+        loadUserCharacterPreference(fallbackModelName: item.name, fallbackModelURL: item.base_model_url)
     }
 
-    private func loadUserCharacterPreference() {
+    private func loadUserCharacterPreference(fallbackModelName: String?, fallbackModelURL: String?) {
         var query: [URLQueryItem] = [
-            URLQueryItem(name: "select", value: "current_costume_name,current_costume_model_url,current_room_name,current_room_image"),
+            URLQueryItem(name: "select", value: "current_costume_id,current_room_id"),
             URLQueryItem(name: "character_id", value: "eq.\(currentCharacterId)")
         ]
-        if let anyId = AuthManager.shared.user?.id {
-            let uid = String(describing: anyId)
+        if let uid = AuthManager.shared.user?.id.uuidString {
             query.append(URLQueryItem(name: "user_id", value: "eq.\(uid)"))
         } else if AuthManager.shared.isGuest, let cid = UserDefaults.standard.string(forKey: PersistKeys.clientId) ?? ensureClientId() {
             query.append(URLQueryItem(name: "client_id", value: "eq.\(cid)"))
@@ -564,61 +596,182 @@ struct ContentView: View {
         guard var req = makeSupabaseRequest(path: "/rest/v1/user_character", queryItems: query) else { return }
         if AuthManager.shared.isGuest, let cid = UserDefaults.standard.string(forKey: PersistKeys.clientId) { req.setValue(cid, forHTTPHeaderField: "X-Client-Id") }
         URLSession.shared.dataTask(with: req) { data, _, _ in
+            let arr = (data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[String: Any]] }) ?? []
+            let row = arr.first
+            
+            let costumeId = row?["current_costume_id"] as? String
+            let roomId = row?["current_room_id"] as? String
+            DispatchQueue.main.async {
+                if let rid = roomId, !rid.isEmpty {
+                    applyRoomById(rid)
+                }
+                if let cid = costumeId, !cid.isEmpty {
+                    applyCostumeById(cid)
+                } else if let fbURL = fallbackModelURL, !fbURL.isEmpty, let fbName = fallbackModelName {
+                    let escapedURL = fbURL.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+                    let escapedName = fbName.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+                    let js = "window.loadModelByURL(\"\(escapedURL)\", \"\(escapedName)\");"
+                    loadModelJSWithSync(js)
+                    persistModel(url: fbURL, name: fbName)
+                }
+                // Do not upsert here; only upsert on explicit user actions (room/costume changes)
+            }
+        }.resume()
+    }
+
+    private func applyRoomById(_ roomId: String) {
+        var query: [URLQueryItem] = [
+            URLQueryItem(name: "select", value: "name,image"),
+            URLQueryItem(name: "id", value: "eq.\(roomId)"),
+            URLQueryItem(name: "limit", value: "1")
+        ]
+        guard let req = makeSupabaseRequest(path: "/rest/v1/rooms", queryItems: query) else { return }
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            guard let data = data,
+                  let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                  let row = arr.first,
+                  let image = row["image"] as? String else { return }
+            let name = row["name"] as? String
+            DispatchQueue.main.async {
+                requestBackgroundChange(image: image, name: name)
+            }
+        }.resume()
+    }
+
+    private func applyCostumeById(_ costumeId: String) {
+        var query: [URLQueryItem] = [
+            URLQueryItem(name: "select", value: "costume_name,model_url,url"),
+            URLQueryItem(name: "id", value: "eq.\(costumeId)"),
+            URLQueryItem(name: "limit", value: "1")
+        ]
+        guard let req = makeSupabaseRequest(path: "/rest/v1/character_costumes", queryItems: query) else { return }
+        URLSession.shared.dataTask(with: req) { data, _, _ in
             guard let data = data,
                   let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
                   let row = arr.first else { return }
-            let costumeURL = row["current_costume_model_url"] as? String
-            let costumeName = row["current_costume_name"] as? String
-            let roomName = row["current_room_name"] as? String
-            let roomImage = row["current_room_image"] as? String
+            let name = row["costume_name"] as? String
+            let modelURL = row["model_url"] as? String
+            let urlName = row["url"] as? String
             DispatchQueue.main.async {
-                if let image = roomImage, !image.isEmpty {
-                    let escaped = image.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-                    let js = "document.body.style.backgroundImage = `url('\(escaped)')`;"
-                    webViewRef?.evaluateJavaScript(js)
-                    if let rn = roomName { currentRoomName = rn }
-                    persistRoom(name: roomName ?? "", url: image)
-                }
-                if let url = costumeURL, !url.isEmpty, let name = costumeName {
-                    let escapedURL = url.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-                    let escapedName = name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+                if let directURL = modelURL, let cname = name, !directURL.isEmpty {
+                    let escapedURL = directURL.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+                    let escapedName = cname.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
                     let js = "window.loadModelByURL(\"\(escapedURL)\", \"\(escapedName)\");"
-                    webViewRef?.evaluateJavaScript(js)
-                    persistModel(url: url, name: name)
-                } else if let name = costumeName, !name.isEmpty {
-                    let escapedName = name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-                    let js = "window.loadModelByName(\"\(escapedName)\");"
-                    webViewRef?.evaluateJavaScript(js)
-                    persistModel(url: nil, name: name)
+                    loadModelJSWithSync(js)
+                    persistModel(url: directURL, name: cname)
+                } else if let urlName = urlName {
+                    let modelName = urlName + ".vrm"
+                    let escaped = modelName.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+                    let js = "window.loadModelByName(\"\(escaped)\");"
+                    loadModelJSWithSync(js)
+                    persistModel(url: nil, name: modelName)
                 }
             }
         }.resume()
     }
 
-    private func upsertUserCharacterPreference(costumeName: String?, costumeURL: String?, roomName: String?, roomImage: String?) {
+    func upsertUserCharacterPreference(costumeName: String?, costumeURL: String?, roomName: String?, roomImage: String?, costumeId: String? = nil, roomId: String? = nil) {
         guard !currentCharacterId.isEmpty else { return }
         let clientId = AuthManager.shared.isGuest ? (UserDefaults.standard.string(forKey: PersistKeys.clientId) ?? ensureClientId()) : nil
-        guard let url = URL(string: SUPABASE_URL + "/rest/v1/user_character") else { return }
+        guard let url = URL(string: SUPABASE_URL + "/rest/v1/user_character?on_conflict=owner_key,character_id") else { return }
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
-        req.setValue("Bearer \(SUPABASE_ANON_KEY)", forHTTPHeaderField: "Authorization")
-        req.setValue(SUPABASE_ANON_KEY, forHTTPHeaderField: "apikey")
+        setSupabaseAuthHeaders(&req)
         req.setValue("application/json", forHTTPHeaderField: "Content-Type")
         req.setValue("return=minimal, resolution=merge-duplicates", forHTTPHeaderField: "Prefer")
         if let cid = clientId { req.setValue(cid, forHTTPHeaderField: "X-Client-Id") }
         var body: [String: Any] = [
             "character_id": currentCharacterId
         ]
-        if let anyId = AuthManager.shared.user?.id { body["user_id"] = String(describing: anyId) }
+        if let uid = AuthManager.shared.user?.id.uuidString { body["user_id"] = uid }
         if let cid = clientId { body["client_id"] = cid }
-        if let costumeName = costumeName { body["current_costume_name"] = costumeName }
-        if let costumeURL = costumeURL { body["current_costume_model_url"] = costumeURL }
-        if let roomName = roomName { body["current_room_name"] = roomName }
-        if let roomImage = roomImage { body["current_room_image"] = roomImage }
+        // legacy fields removed; we now store only ids
+        if let costumeId = costumeId { body["current_costume_id"] = costumeId }
+        if let roomId = roomId { body["current_room_id"] = roomId }
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
         URLSession.shared.dataTask(with: req).resume()
     }
 
+    // Update only current_room_id deterministically. If no row exists, create it.
+    func setUserCurrentRoom(roomId: String) {
+        guard !currentCharacterId.isEmpty else { return }
+        var query: [URLQueryItem] = [
+            URLQueryItem(name: "character_id", value: "eq.\(currentCharacterId)")
+        ]
+        if let uid = AuthManager.shared.user?.id.uuidString {
+            query.append(URLQueryItem(name: "user_id", value: "eq.\(uid)"))
+        } else if AuthManager.shared.isGuest, let cid = UserDefaults.standard.string(forKey: PersistKeys.clientId) ?? ensureClientId() {
+            query.append(URLQueryItem(name: "client_id", value: "eq.\(cid)"))
+        }
+        guard var patchReq = makeSupabaseRequest(path: "/rest/v1/user_character", queryItems: query) else { return }
+        patchReq.httpMethod = "PATCH"
+        patchReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        patchReq.setValue("return=representation", forHTTPHeaderField: "Prefer")
+        if AuthManager.shared.isGuest, let cid = UserDefaults.standard.string(forKey: PersistKeys.clientId) { patchReq.setValue(cid, forHTTPHeaderField: "X-Client-Id") }
+        let body: [String: Any] = [ "current_room_id": roomId ]
+        patchReq.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        URLSession.shared.dataTask(with: patchReq) { data, response, _ in
+            let rows = (data.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [[String: Any]] }) ?? []
+            if rows.isEmpty {
+                // Create row if missing
+                var postReq = URLRequest(url: URL(string: SUPABASE_URL + "/rest/v1/user_character")!)
+                postReq.httpMethod = "POST"
+                setSupabaseAuthHeaders(&postReq)
+                postReq.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                postReq.setValue("return=minimal", forHTTPHeaderField: "Prefer")
+                if AuthManager.shared.isGuest, let cid = UserDefaults.standard.string(forKey: PersistKeys.clientId) { postReq.setValue(cid, forHTTPHeaderField: "X-Client-Id") }
+                var create: [String: Any] = [
+                    "character_id": currentCharacterId,
+                    "current_room_id": roomId
+                ]
+                if let uid = AuthManager.shared.user?.id.uuidString { create["user_id"] = uid }
+                if AuthManager.shared.isGuest, let cid = UserDefaults.standard.string(forKey: PersistKeys.clientId) { create["client_id"] = cid }
+                postReq.httpBody = try? JSONSerialization.data(withJSONObject: create)
+                URLSession.shared.dataTask(with: postReq).resume()
+            }
+        }.resume()
+    }
+
+    // MARK: - Model/Background Synchronization Helpers
+    private func requestBackgroundChange(image: String, name: String?) {
+        pendingBackgroundImage = image
+        pendingRoomNameQueued = name
+        // Ensure background music never auto-enables on background change
+        muteBgmIfNeeded()
+        if !isModelLoading { applyPendingBackgroundIfAny() }
+    }
+
+    private func applyPendingBackgroundIfAny() {
+        guard let image = pendingBackgroundImage else { return }
+        let escaped = image.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let js = "document.body.style.backgroundImage = `url('" + escaped + "')`;"
+        webViewRef?.evaluateJavaScript(js)
+        // Re-mute BGM after DOM style change in case page-side code toggles it
+        muteBgmIfNeeded()
+        if let rn = pendingRoomNameQueued { currentRoomName = rn }
+        persistRoom(name: pendingRoomNameQueued ?? "", url: image)
+        pendingBackgroundImage = nil
+        pendingRoomNameQueued = nil
+    }
+
+    private func loadModelByURLWithSync(url: String, name: String) {
+        let escapedURL = url.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let escapedName = name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let js = "window.loadModelByURL(\"\(escapedURL)\", \"\(escapedName)\");"
+        loadModelJSWithSync(js)
+    }
+
+    private func loadModelJSWithSync(_ js: String) {
+        isModelLoading = true
+        // Try to await a possible Promise; otherwise still resolve and continue
+        let wrapped = "(async()=>{try{const r=(function(){\n\(js)\n})(); if(r&&typeof r.then==='function'){await r;} return 'READY';}catch(e){return 'READY';}})();"
+        webViewRef?.evaluateJavaScript(wrapped, completionHandler: { _, _ in
+            // Keep BGM muted unless user toggles explicitly
+            muteBgmIfNeeded()
+            self.isModelLoading = false
+            self.applyPendingBackgroundIfAny()
+        })
+    }
     private struct ConversationRow: Decodable {
         let message: String
         let is_agent: Bool
@@ -633,8 +786,7 @@ struct ContentView: View {
             URLQueryItem(name: "order", value: "created_at.desc"),
             URLQueryItem(name: "limit", value: String(limit))
         ]
-        if let anyId = AuthManager.shared.user?.id {
-            let uid = String(describing: anyId)
+        if let uid = AuthManager.shared.user?.id.uuidString {
             query.append(URLQueryItem(name: "user_id", value: "eq.\(uid)"))
         } else if AuthManager.shared.isGuest, let cid = UserDefaults.standard.string(forKey: PersistKeys.clientId) ?? ensureClientId() {
             query.append(URLQueryItem(name: "client_id", value: "eq.\(cid)"))
@@ -661,13 +813,6 @@ struct ContentView: View {
         if newIndex < 0 { newIndex += count }
         let item = allCharacters[newIndex]
         applyCharacter(item)
-        // Load model by URL if available
-        if let url = item.base_model_url, !url.isEmpty {
-            let escaped = url.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-            let nameEscaped = item.name.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-            let js = "window.loadModelByURL(\"\(escaped)\", \"\(nameEscaped)\");"
-            webViewRef?.evaluateJavaScript(js)
-        }
         // Do not auto-start agent on character change; user controls via mic button
     }
 
@@ -729,6 +874,19 @@ struct ContentView: View {
                 }
             }
         }
+    }
+    
+    private func triggerHaptic(_ style: UIImpactFeedbackGenerator.FeedbackStyle) {
+        #if canImport(UIKit)
+        guard hapticsEnabled else { return }
+        let impact = UIImpactFeedbackGenerator(style: style)
+        impact.impactOccurred()
+        #endif
+    }
+
+    private func muteBgmIfNeeded() {
+        guard !autoPlayMusic else { return }
+        webViewRef?.evaluateJavaScript("(function(){try{return window.setBgm&&window.setBgm(false);}catch(e){return false}})();")
     }
 }
 

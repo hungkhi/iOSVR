@@ -82,8 +82,7 @@ struct CostumeSheetView: View {
         // Supabase query
         let query: [URLQueryItem] = [
             URLQueryItem(name: "character_id", value: "eq.\(effectiveId)"),
-            URLQueryItem(name: "select", value: "id,character_id,costume_name,url,thumbnail,model_url"),
-            URLQueryItem(name: "order", value: "created_at.desc")
+            URLQueryItem(name: "select", value: "id,character_id,costume_name,url,thumbnail,model_url")
         ]
         guard let request = makeSupabaseRequest(path: "/rest/v1/character_costumes", queryItems: query) else { isLoading = false; errorMessage = "Failed to build Supabase costume query"; return }
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -180,7 +179,12 @@ struct RoomSheetView: View {
                 isLoading = false
                 if let error = error { errorMessage = error.localizedDescription; return }
                 guard let data = data else { errorMessage = "No data"; return }
-                do { let decoded = try JSONDecoder().decode([RoomItem].self, from: data); items = decoded } catch { errorMessage = "Decoding error: \(error.localizedDescription)" }
+                do {
+                    var decoded = try JSONDecoder().decode([RoomItem].self, from: data)
+                    // Oldest first by created_at when available
+                    decoded.sort { ($0.created_at) < ($1.created_at) }
+                    items = decoded
+                } catch { errorMessage = "Decoding error: \(error.localizedDescription)" }
             }
         }.resume()
     }

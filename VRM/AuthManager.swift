@@ -13,6 +13,7 @@ class AuthManager: NSObject, ObservableObject {
     @Published var isLoading: Bool = false
     @Published var errorMessage: String? = nil
     @Published var isGuest: Bool = false
+    @Published var hasRestoredSession: Bool = false
 
     override private init() {
         self.client = SupabaseClient(
@@ -20,6 +21,55 @@ class AuthManager: NSObject, ObservableObject {
             supabaseKey: SUPABASE_ANON_KEY
         )
         super.init()
+        // Attempt to restore existing session and user on startup
+        Task { [weak self] in
+            guard let self else { return }
+            let session = try? await client.auth.session
+            let user = try? await client.auth.currentUser
+            await MainActor.run {
+                self.session = session
+                self.user = user
+                self.hasRestoredSession = true
+            }
+        }
+    }
+
+    func needsDisplayNamePrompt() -> Bool {
+        guard let md = user?.userMetadata else { return true }
+        let raw = md["display_name"]
+        let name = raw.map { String(describing: $0) } ?? ""
+        return name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    @MainActor
+    func updateDisplayName(_ name: String) async {
+        guard !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        do {
+            let _ = try await client.auth.update(user: UserAttributes(data: ["display_name": .string(name)]))
+            let refreshed = try? await client.auth.currentUser
+            self.user = refreshed
+        } catch {
+            self.errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    func updateBirthYear(_ year: Int) async {
+        guard year > 1900, year < 2100 else { return }
+        do {
+            let _ = try await client.auth.update(user: UserAttributes(data: ["birth_year": .string(String(year))]))
+            let refreshed = try? await client.auth.currentUser
+            self.user = refreshed
+        } catch {
+            self.errorMessage = error.localizedDescription
+        }
+    }
+
+    @MainActor
+    func deleteAccountLocally() async {
+        // Client apps typically cannot delete accounts without a service role.
+        // As a fallback, sign out and clear local state. Server should process deletion.
+        await logout()
     }
 
     func signInWithApple() {

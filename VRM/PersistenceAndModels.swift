@@ -1,4 +1,5 @@
 import Foundation
+import Auth
 
 // MARK: - Persistence Keys (shared)
 struct PersistKeys {
@@ -19,10 +20,8 @@ func makeSupabaseRequest(path: String, queryItems: [URLQueryItem]) -> URLRequest
     guard let url = components.url else { return nil }
     var request = URLRequest(url: url)
     request.httpMethod = "GET"
-    request.setValue("Bearer \(SUPABASE_ANON_KEY)", forHTTPHeaderField: "Authorization")
-    request.setValue(SUPABASE_ANON_KEY, forHTTPHeaderField: "apikey")
+    setSupabaseAuthHeaders(&request)
     request.setValue("application/json", forHTTPHeaderField: "Accept")
-    if let cid = ensureClientId() { request.setValue(cid, forHTTPHeaderField: "X-Client-Id") }
     return request
 }
 
@@ -33,6 +32,19 @@ func ensureClientId() -> String? {
     let newId = UUID().uuidString
     UserDefaults.standard.set(newId, forKey: PersistKeys.clientId)
     return newId
+}
+
+// Apply proper Supabase auth headers: user session token if available, else anon key.
+func setSupabaseAuthHeaders(_ request: inout URLRequest) {
+    if let token = AuthManager.shared.session?.accessToken {
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+    } else {
+        request.setValue("Bearer \(SUPABASE_ANON_KEY)", forHTTPHeaderField: "Authorization")
+    }
+    // Always include anon key as apikey per Supabase requirement
+    request.setValue(SUPABASE_ANON_KEY, forHTTPHeaderField: "apikey")
+    // Include client id to support guest RLS policies
+    if let cid = ensureClientId() { request.setValue(cid, forHTTPHeaderField: "X-Client-Id") }
 }
 
 // MARK: - Character API Models

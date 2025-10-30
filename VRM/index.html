@@ -201,7 +201,7 @@ const vrmFiles = ["0001_01 2.vrm","0001_01 3.vrm","0001_02 2.vrm","0001_02 3.vrm
 const fbxFiles = ["Angry.fbx","Bashful.fbx","Blow A Kiss.fbx","Booty Hip Hop Dance.fbx","Cross Jumps.fbx","Hand Raising.fbx","Happy.fbx","Hip Hop Dancing.fbx","Idle Stand.fbx","Jumping Jacks.fbx","Quick Steps.fbx","Rumba Dancing.fbx","Snake Hip Hop Dance.fbx","Standing Arguing.fbx","Standing Greeting.fbx","Step Hip Hop Dance.fbx","Talking.fbx","Taunt.fbx","Thinking.fbx","Threatening.fbx"];
 const VRM_BASE_URL = 'https://n6n.top/Model/';
 const FBX_BASE_URL = 'https://n6n.top/Anim/';
-const BGM_URL = 'https://pub-14a49f54cd754145a7362876730a1a52.r2.dev/sensual-escape-139637.mp3';
+// Background music is controlled exclusively by Swift; no HTML-side audio.
 const namePatterns = {hips:/hip/i,spine:/spine/i,chest:/chest|spine1/i,upperChest:/upperchest|spine2/i,neck:/neck/i,head:/head/i,leftShoulder:/l(eft)?[-_\s]?shoulder/i,leftUpperArm:/l(eft)?[-_\s]?(upper)?[-_\s]?arm/i,leftLowerArm:/l(eft)?[-_\s]?(lower|fore)[-_\s]?arm/i,leftHand:/l(eft)?[-_\s]?hand/i,rightShoulder:/r(ight)?[-_\s]?shoulder/i,rightUpperArm:/r(ight)?[-_\s]?(upper)?[-_\s]?arm/i,rightLowerArm:/r(ight)?[-_\s]?(lower|fore)[-_\s]?arm/i,rightHand:/r(ight)?[-_\s]?hand/i,leftUpperLeg:/l(eft)?[-_\s]?(upper|up)[-_\s]?leg|l(eft)?[-_\s]?thigh/i,leftLowerLeg:/l(eft)?[-_\s]?(lower)?[-_\s]?leg|l(eft)?[-_\s]?(shin|calf)/i,leftFoot:/l(eft)?[-_\s]?foot/i,leftToes:/l(eft)?[-_\s]?(toe|toebase)/i,rightUpperLeg:/r(ight)?[-_\s]?(upper|up)[-_\s]?leg|r(ight)?[-_\s]?thigh/i,rightLowerLeg:/r(ight)?[-_\s]?(lower)?[-_\s]?leg|r(ight)?[-_\s]?(shin|calf)/i,rightFoot:/r(ight)?[-_\s]?foot/i,rightToes:/r(ight)?[-_\s]?(toe|toebase)/i};
 // === End inlined config ===
 
@@ -444,10 +444,7 @@ let currentMixer = undefined;
 let currentAction = undefined;
 let lastUsedAnimationIndex = -1;
 let blinkInterval = undefined;
-let bgmAudio = undefined;
-let bgmEnabled = true;
-let __bgmBaseVol = 0.25;
-let __bgmDuckVol = 0.08; // volume while speaking
+// Removed HTML-side BGM variables; Swift manages all music playback.
 let smileController = undefined;
 let ambientController = undefined;
 let postLoadBlurTimerId = undefined;
@@ -1005,75 +1002,7 @@ window.loadNextAnimation = async function() {
     }
 }
 
-// Background music controls
-window.initBgm = function() {
-    try {
-        if (bgmAudio) return;
-        bgmAudio = new Audio(BGM_URL);
-        bgmAudio.loop = true;
-        bgmAudio.volume = __bgmBaseVol;
-        try { bgmAudio.playsInline = true; } catch {}
-        try { bgmAudio.setAttribute && bgmAudio.setAttribute('playsinline', ''); } catch {}
-        bgmAudio.muted = false;
-        bgmAudio.play().then(() => { bgmEnabled = true; }).catch(() => {
-            // Fallback: resume on first user interaction
-            const resume = () => {
-                try { bgmAudio.muted = false; bgmAudio.play().catch(() => {}); bgmEnabled = true; } catch {}
-                window.removeEventListener('touchstart', resume, { capture: true });
-                window.removeEventListener('touchend', resume, { capture: true });
-                window.removeEventListener('pointerdown', resume, { capture: true });
-                window.removeEventListener('click', resume, { capture: true });
-            };
-            window.addEventListener('touchstart', resume, { once: true, capture: true });
-            window.addEventListener('touchend', resume, { once: true, capture: true });
-            window.addEventListener('pointerdown', resume, { once: true, capture: true });
-            window.addEventListener('click', resume, { once: true, capture: true });
-        });
-    } catch {}
-}
-window.toggleBgm = function() {
-    try {
-        if (!bgmAudio) { window.initBgm(); }
-        if (!bgmAudio) return false;
-        if (bgmAudio.paused) {
-            bgmAudio.muted = false;
-            bgmAudio.play().catch(() => {});
-            bgmEnabled = true;
-        } else {
-            bgmAudio.pause();
-            bgmEnabled = false;
-        }
-        return !bgmAudio.paused;
-    } catch { return false; }
-}
-window.setBgm = function(enabled) {
-    try {
-        if (!bgmAudio) { window.initBgm(); }
-        if (!bgmAudio) return false;
-        if (enabled) {
-            bgmAudio.muted = false;
-            bgmAudio.play().catch(() => {});
-            bgmEnabled = true;
-        } else {
-            bgmAudio.pause();
-            bgmEnabled = false;
-        }
-        return enabled;
-    } catch { return false; }
-}
-// Optional: adjust base/ducking volumes at runtime
-window.setBgmVolumes = function(baseVol = 0.25, duckVol = 0.08) {
-    try {
-        __bgmBaseVol = Math.max(0, Math.min(1, Number(baseVol) || 0.25));
-        __bgmDuckVol = Math.max(0, Math.min(1, Number(duckVol) || 0.08));
-        if (bgmAudio && !bgmAudio.paused) {
-            bgmAudio.volume = __bgmBaseVol;
-        }
-    } catch {}
-}
-window.isBgmPlaying = function() {
-    try { return !!bgmAudio && !bgmAudio.paused; } catch { return false; }
-}
+// Removed HTML-side background music functions; Swift layer owns playback.
 
 // Load a specific VRM model by file name (exposed to SwiftUI)
 window.loadModelByName = async function(modelName) {
@@ -1120,8 +1049,7 @@ window.addEventListener('DOMContentLoaded', async function() {
         loadVRM(vrmUrl, modelToLoad);
     }
     startBackgroundPreloading(modelToLoad, null);
-    // Initialize background music on homepage access
-    try { window.initBgm(); } catch {}
+    // No HTML-side BGM initialization
 });
 
 const clock = new THREE.Clock();
@@ -1130,7 +1058,7 @@ function animate() {
     const deltaTime = clock.getDelta();
     if ( currentMixer ) { currentMixer.update( deltaTime ); }
     if ( currentVrm ) { currentVrm.update( deltaTime ); }
-    applyBgmDucking();
+    // No HTML-side BGM ducking
     renderer.render( scene, camera );
 }
 animate();
@@ -1340,20 +1268,11 @@ window.applyParallax = (dx, dy) => {
                     try { currentVrm.expressionManager.setValue(n, val); } catch {}
                 }
             }
-            // Also apply BG music ducking here (instant target change, smoothed in per-frame loop)
+    // No HTML-side BGM ducking; managed in Swift
         } catch {}
     };
 
-    function applyBgmDucking() {
-        try {
-            if (!bgmAudio) return;
-            const speaking = performance.now() < __speechActiveUntil;
-            const target = speaking ? __bgmDuckVol : __bgmBaseVol;
-            // smooth toward target
-            const next = bgmAudio.volume + (target - bgmAudio.volume) * 0.15;
-            bgmAudio.volume = Math.max(0, Math.min(1, next));
-        } catch {}
-    }
+    // Removed applyBgmDucking; Swift manages audio levels
         </script>
     </body>
 </html>

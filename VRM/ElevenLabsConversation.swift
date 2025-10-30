@@ -1,6 +1,7 @@
 import Foundation
 import Combine
 import ElevenLabs
+import Auth
 import WebKit
 
 @MainActor

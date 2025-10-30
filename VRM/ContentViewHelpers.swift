@@ -25,17 +25,35 @@ extension ContentView {
     
     func captureAndSaveCurrentBackgroundAndRoom() {
         let bgJS = "(function(){try{const s=getComputedStyle(document.body).backgroundImage;const m=s&&s.match(/url\\(\\\"?([^\\\"]+)\\\"?\\)/);return m?m[1]:'';}catch(e){return ''}})();"
-        webViewRef?.evaluateJavaScript(bgJS) { result, _ in
+        webViewRef?.evaluateJavaScript(bgJS, completionHandler: { result, _ in
             if let url = result as? String, !url.isEmpty {
                 UserDefaults.standard.set(url, forKey: PersistKeys.backgroundURL)
+                // Resolve room_id by image URL and upsert id (not raw image)
+                var query: [URLQueryItem] = [
+                    URLQueryItem(name: "select", value: "id,name"),
+                    URLQueryItem(name: "image", value: "eq.\(url)"),
+                    URLQueryItem(name: "limit", value: "1")
+                ]
+                if let req = makeSupabaseRequest(path: "/rest/v1/rooms", queryItems: query) {
+                    URLSession.shared.dataTask(with: req) { data, _, _ in
+                        guard let data = data,
+                              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                              let row = arr.first,
+                              let rid = row["id"] as? String else { return }
+                        DispatchQueue.main.async {
+                            setUserCurrentRoom(roomId: rid)
+                        }
+                    }.resume()
+                }
             }
-        }
-        webViewRef?.evaluateJavaScript("(function(){try{return window.getCurrentRoomName&&window.getCurrentRoomName();}catch(e){return ''}})();") { result, _ in
+        })
+        webViewRef?.evaluateJavaScript("(function(){try{return window.getCurrentRoomName&&window.getCurrentRoomName();}catch(e){return ''}})();", completionHandler: { result, _ in
             if let name = result as? String {
                 UserDefaults.standard.set(name, forKey: PersistKeys.roomName)
                 DispatchQueue.main.async { self.currentRoomName = name }
+                // No direct upsert for name; server stores only ids
             }
-        }
+        })
     }
     
     func prefetchCharacterThumbnails() {

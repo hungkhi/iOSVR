@@ -43,7 +43,7 @@ struct CharacterCardView: View {
                     .foregroundStyle(.white)
                     .clipShape(Capsule())
                     // Position badge away from edges; slightly higher and snapped to right
-                    .padding(.trailing, contentPadding + 14)
+                    .padding(.trailing, contentPadding + 24)
                     .padding(.top, contentPadding - 4)
             }
 

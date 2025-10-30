@@ -10,13 +10,14 @@ import SwiftUI
 @main
 struct VRMApp: App {
     @State private var showSplash: Bool = true
+    @State private var modelReady: Bool = false
+    @StateObject private var authManager = AuthManager.shared
     var body: some Scene {
         WindowGroup {
             ZStack {
                 ContentView(onModelReady: {
-                    withAnimation(.easeInOut(duration: 0.6)) {
-                        showSplash = false
-                    }
+                    modelReady = true
+                    attemptHideSplash()
                 })
                     .opacity(showSplash ? 0 : 1)
 
@@ -26,6 +27,15 @@ struct VRMApp: App {
                 }
             }
             // No auto-dismiss; splash hides when model reports loaded
+            .onChange(of: authManager.hasRestoredSession) { _, _ in
+                attemptHideSplash()
+            }
+        }
+    }
+
+    private func attemptHideSplash() {
+        if modelReady && authManager.hasRestoredSession {
+            withAnimation(.easeInOut(duration: 0.6)) { showSplash = false }
         }
     }
 }
