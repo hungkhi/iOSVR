@@ -8,6 +8,7 @@ struct ControlButtonsView: View {
     let onCostumeTap: () -> Void
     let onCameraTap: () -> Void
     let showChatList: Bool
+    let hasMessages: Bool
     let onToggleChat: () -> Void
     
     var body: some View {
@@ -82,19 +83,21 @@ struct ControlButtonsView: View {
             .buttonBorderShape(.circle)
             .clipShape(Circle())
             
-            Button(action: {
-                let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                impactFeedback.impactOccurred()
-                onToggleChat()
-            }) {
-                Image(systemName: showChatList ? "xmark" : "text.bubble.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                    .frame(width: 32, height: 32)
-                    .contentShape(Circle())
+            if hasMessages {
+                Button(action: {
+                    let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+                    impactFeedback.impactOccurred()
+                    onToggleChat()
+                }) {
+                    Image(systemName: showChatList ? "xmark" : "text.bubble.fill")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 32, height: 32)
+                        .contentShape(Circle())
+                }
+                .buttonStyle(.glass)
+                .buttonBorderShape(.circle)
+                .clipShape(Circle())
             }
-            .buttonStyle(.glass)
-            .buttonBorderShape(.circle)
-            .clipShape(Circle())
         }
         .padding(.trailing, 8)
         .padding(.top, 6)

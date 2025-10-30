@@ -140,10 +140,20 @@ struct ChatMessagesOverlay: View {
         .padding(.top, 4)
         .padding(.bottom, bottomInset)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .frame(maxHeight: min(geometry.size.height - bottomInset, UIScreen.main.bounds.height * 2.0/3.0))
+        .frame(maxHeight: min(geometry.size.height - bottomInset, UIScreen.main.bounds.height * 0.5))
         .animation(.spring(response: 0.35, dampingFraction: 0.9, blendDuration: 0.1), value: messages)
         .offset(x: scrollOffset)
         .opacity(showChatList ? 1 : 0)
+        .highPriorityGesture(
+            DragGesture(minimumDistance: 20, coordinateSpace: .local)
+                .onEnded { value in
+                    let dx = value.translation.width
+                    let dy = value.translation.height
+                    if abs(dx) > abs(dy), dx < -40 {
+                        onSwipeToHide()
+                    }
+                }
+        )
     }
     
     private func messageRow(index: Int, message: ChatMessage) -> some View {

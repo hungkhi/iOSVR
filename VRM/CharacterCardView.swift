@@ -14,7 +14,7 @@ struct CharacterCardView: View {
 
         ZStack(alignment: .bottomLeading) {
             // Image background
-            ZStack(alignment: .topLeading) {
+            ZStack(alignment: .topTrailing) {
                 if let urlStr = item.thumbnail_url, let url = URL(string: urlStr) {
                     AsyncImage(url: url) { phase in
                         switch phase {
@@ -42,9 +42,9 @@ struct CharacterCardView: View {
                     .background(Color.black.opacity(0.35))
                     .foregroundStyle(.white)
                     .clipShape(Capsule())
-                    // Position badge away from edges; slightly reduce top padding
-                    .padding(.leading, contentPadding + 20)
-                    .padding(.top, contentPadding )
+                    // Position badge away from edges; slightly higher and snapped to right
+                    .padding(.trailing, contentPadding + 14)
+                    .padding(.top, contentPadding - 4)
             }
 
             // Gradient and text

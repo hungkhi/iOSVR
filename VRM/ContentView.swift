@@ -37,6 +37,9 @@ struct ContentView: View {
     @StateObject private var convVM = ConversationViewModel()
     private let elevenLabsAgentId: String = "agent_9201k8qwpfsjew2v76qf995vq416"
     @State private var showChatList: Bool = true
+    @State private var bootingAgent: Bool = false
+    @State private var showSettingsSheet: Bool = false
+    @State private var showMediaSheet: Bool = false
     var body: some View {
         NavigationStack {
             ZStack {
@@ -111,14 +114,13 @@ struct ContentView: View {
                         let js = "(function(){try{if(!window.__bgApplied){document.body.style.backgroundImage=\"url('\(escaped)')\";window.__bgApplied=true;}}catch(e){}})();"
                         webViewRef?.evaluateJavaScript(js)
                     }
-                    // Start ElevenLabs agent call immediately
-                    Task { await convVM.startConversationIfNeeded(agentId: elevenLabsAgentId) }
+                    // Agent will be started manually via mic button
                 }
                 // Receive ElevenLabs agent text and append as pink bubbles
                 .onReceive(convVM.agentText) { text in
                     withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
                         chatMessages.append(ChatMessage(kind: .text(text), isAgent: true))
-                        if chatMessages.count > 10 { chatMessages.removeFirst() }
+                        while chatMessages.count > 5 { chatMessages.removeFirst() }
                     }
                 }
                 .onChange(of: scenePhase) { _, newPhase in
@@ -157,10 +159,7 @@ struct ContentView: View {
                                 persistCharacter(id: item.id)
                                 currentCharacterName = item.name
                                 }
-                                // Start new ElevenLabs conversation for this character if available
-                                if let agentId = item.agent_elevenlabs_id, !agentId.isEmpty {
-                                    Task { await convVM.endConversation(); await convVM.startConversationIfNeeded(agentId: agentId) }
-                                }
+                                // Do not auto-start agent; user controls via mic button
                                 // Sync swipe index
                                 if let idx = allCharacters.firstIndex(where: { $0.id == item.id }) {
                                     currentCharacterIndex = idx
@@ -177,10 +176,11 @@ struct ContentView: View {
                     ControlButtonsView(
                         onRoomTap: { showRoomSheet = true },
                         onDanceTap: { webViewRef?.evaluateJavaScript("window.triggerDance&&window.triggerDance();") },
-                        onLoveTap: { webViewRef?.evaluateJavaScript("window.triggerLove&&window.triggerLove();") },
+                        onLoveTap: { showMediaSheet = true },
                         onCostumeTap: { showCostumeSheet = true },
                         onCameraTap: { captureAndSaveSnapshot() },
                         showChatList: showChatList,
+                        hasMessages: !chatMessages.isEmpty,
                         onToggleChat: {
                             withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) { showChatList.toggle() }
                         }
@@ -206,21 +206,26 @@ struct ContentView: View {
                             QuickMessageChips(onSendMessage: sendMessage)
                         }
                     }
-                    .padding(.bottom, 0)
+                    .padding(.bottom, 8)
                 }
                 .toolbar {
                     ToolbarItem(placement: .topBarLeading) {
-                        Button(action: {
-                            let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
-                            impactFeedback.impactOccurred()
-                            webViewRef?.evaluateJavaScript("(function(){try{return window.toggleBgm&&window.toggleBgm();}catch(e){return false}})();") { result, _ in
-                                if let playing = result as? Bool {
-                                    
-                                    DispatchQueue.main.async { self.isBgmOn = playing }
+                        HStack(spacing: 8) {
+                            Button(action: {
+                                let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+                                impactFeedback.impactOccurred()
+                                showSettingsSheet = true
+                            }) { Image(systemName: "gearshape.fill") }
+                            Button(action: {
+                                let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+                                impactFeedback.impactOccurred()
+                                webViewRef?.evaluateJavaScript("(function(){try{return window.toggleBgm&&window.toggleBgm();}catch(e){return false}})();") { result, _ in
+                                    if let playing = result as? Bool {
+                                        DispatchQueue.main.async { self.isBgmOn = playing }
+                                    }
                                 }
-                            }
-                        }) { Image(systemName: isBgmOn ? "speaker.wave.2.fill" : "speaker.slash.fill") }
-                        .padding(6)
+                            }) { Image(systemName: isBgmOn ? "speaker.wave.2.fill" : "speaker.slash.fill") }
+                        }
                     }
                     ToolbarItem(placement: .principal) {
                         VStack(spacing: 2) {
@@ -248,7 +253,7 @@ struct ContentView: View {
 
                     ToolbarItemGroup(placement: .bottomBar) {
                         HStack(spacing: 10) {
-                            TextField("Ask Anything", text: $chatText)
+                            TextField("", text: $chatText, prompt: Text(chatPlaceholder()).foregroundStyle(.white))
                                 .textFieldStyle(.plain)
                                 .textInputAutocapitalization(.sentences)
                                 .disableAutocorrection(false)
@@ -273,13 +278,24 @@ struct ContentView: View {
                                     let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
                                     impactFeedback.impactOccurred()
                                     if convVM.isConnected {
+                                        bootingAgent = false
+                                        // Append system message and trim to last 5
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                                            chatMessages.append(ChatMessage(kind: .text("Conversation stopped")))
+                                            while chatMessages.count > 5 { chatMessages.removeFirst() }
+                                        }
                                         Task { await convVM.endConversation() }
                                     } else {
+                                        bootingAgent = true
                                         Task { await convVM.startConversationIfNeeded(agentId: elevenLabsAgentId) }
                                     }
                                 }) {
-                                    if convVM.isConnected {
-                                        PulsingCircleView(volume: convVM.agentVolume)
+                                    if bootingAgent {
+                                        ProgressView()
+                                            .progressViewStyle(.circular)
+                                            .padding(.trailing, -6)
+                                    } else if convVM.isConnected {
+                                        Image(systemName: "stop.fill")
                                     } else {
                                         Image(systemName: "mic.fill")
                                     }
@@ -290,6 +306,9 @@ struct ContentView: View {
                         .padding(.vertical, 4)
                         .padding(.horizontal, 16)
                     }
+                }
+                .onChange(of: convVM.isConnected) { _, newVal in
+                    if newVal { bootingAgent = false }
                 }
                 .sheet(isPresented: $showCostumeSheet) {
                     CostumeSheetView(characterId: currentCharacterId) { costume in
@@ -331,6 +350,16 @@ struct ContentView: View {
                     .presentationDetents([.fraction(0.35), .large])
                     .presentationBackground(.ultraThinMaterial.opacity(0.2))
                 }
+                .sheet(isPresented: $showMediaSheet) {
+                    MediaSheetView(characterId: currentCharacterId)
+                        .preferredColorScheme(.dark)
+                        .presentationDetents([.fraction(0.35), .large])
+                        .presentationBackground(.ultraThinMaterial.opacity(0.2))
+                }
+                .sheet(isPresented: $showSettingsSheet) {
+                    PlaceholderView(title: "Settings")
+                        .preferredColorScheme(.dark)
+                }
                 if chatFieldFocused {
                     Color.clear
                         .contentShape(Rectangle())
@@ -350,10 +379,10 @@ struct ContentView: View {
         // Also send to ElevenLabs agent if connected
         Task { await convVM.sendText(message) }
         
-        // Keep only last 10 messages to prevent memory issues
-        if chatMessages.count > 10 {
+        // Keep only last 5 messages
+        if chatMessages.count > 5 {
             withAnimation(.easeInOut(duration: 0.2)) {
-            chatMessages.removeFirst()
+                while chatMessages.count > 5 { chatMessages.removeFirst() }
             }
         }
         
@@ -366,7 +395,20 @@ struct ContentView: View {
         // webViewRef?.evaluateJavaScript("sendMessage('\(message)');")
     }
     
-
+    private func chatPlaceholder() -> String {
+        if bootingAgent { return "Setting up the conversation..." }
+        if convVM.isConnected {
+            let name: String
+            if !currentCharacterName.isEmpty {
+                name = currentCharacterName
+            } else if let found = allCharacters.first(where: { $0.id == currentCharacterId })?.name {
+                name = found
+            } else { name = "Agent" }
+            return "Talking to \(name)"
+        }
+        return "Ask Anything"
+    }
+    
     private func fetchCharactersList() {
         guard allCharacters.isEmpty else { return }
         var request = URLRequest(url: URL(string: "https://n8n8n.top/webhook/characters")!)
@@ -407,10 +449,7 @@ struct ContentView: View {
             persistCharacter(id: item.id)
             persistModel(url: url, name: item.name)
         }
-        // Start new conversation for this character's agent if provided
-        if let agentId = item.agent_elevenlabs_id, !agentId.isEmpty {
-            Task { await convVM.endConversation(); await convVM.startConversationIfNeeded(agentId: agentId) }
-        }
+        // Do not auto-start agent on character change; user controls via mic button
     }
 
     private func displayedCharacterTitle() -> String {

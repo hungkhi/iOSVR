@@ -89,7 +89,7 @@ private struct SplashView: View {
                let fileImg = UIImage(contentsOfFile: path) {
                 image = fileImg
             } else {
-                print("⚠️ Splash image not found. Ensure 'Splash' exists in Assets.xcassets or as Splash.png in bundle and is part of target.")
+                // Splash image not found; skipping console log per requirements
             }
         }
     }

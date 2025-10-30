@@ -80,6 +80,7 @@ struct CharactersView: View {
             }
         }
         .navigationTitle("Characters")
+        .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button("Reload") { 

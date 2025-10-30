@@ -30,7 +30,7 @@ final class ConversationViewModel: ObservableObject {
             )
             setupObservers()
         } catch {
-            print("Failed to start conversation: \(error)")
+            // Swallow errors to avoid console noise; UI can reflect state via isConnected
         }
     }
 
@@ -51,16 +51,14 @@ final class ConversationViewModel: ObservableObject {
 
     func toggleMute() async {
         guard let conversation else { return }
-        do { try await conversation.toggleMute() } catch { print("toggleMute error: \(error)") }
+        do { try await conversation.toggleMute() } catch { }
     }
 
     func sendText(_ text: String) async {
         guard let conversation, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         do {
             try await conversation.sendMessage(text)
-        } catch {
-            print("sendMessage error: \(error)")
-        }
+        } catch { }
     }
 
     private func setupObservers() {

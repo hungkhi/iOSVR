@@ -6,7 +6,9 @@ struct PulsingCircleView: View {
     @State private var idle = false
     
     private var baseSize: CGFloat { 24 }
-    private var scaleFromVolume: CGFloat { CGFloat(1.0 + min(max(volume, 0.0), 1.0) * 0.7) }
+    private var clampedVolume: Double { min(max(volume, 0.0), 1.0) }
+    private var scaleFromVolume: CGFloat { CGFloat(1.0 + clampedVolume * 0.7) }
+    private var overallOpacity: Double { 0.35 + clampedVolume * 0.65 }
     
     var body: some View {
         ZStack {
@@ -24,7 +26,9 @@ struct PulsingCircleView: View {
                 .fill(Color.white)
                 .frame(width: baseSize, height: baseSize)
         }
-        .animation(.easeOut(duration: 0.08), value: volume)
+        .opacity(overallOpacity)
+        .offset(x: 4) // nudge slightly to the right
+        .animation(.easeOut(duration: 0.08), value: clampedVolume)
         .onAppear {
             withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
                 idle.toggle()
