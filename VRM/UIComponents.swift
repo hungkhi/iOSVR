@@ -1,4 +1,5 @@
 import SwiftUI
+import SupabaseAPI
 
 // MARK: - Costume Bottom Sheet
 struct CostumeSheetView: View {
@@ -79,16 +80,17 @@ struct CostumeSheetView: View {
         errorMessage = nil
         items.removeAll()
         let effectiveId = characterId.isEmpty ? "74432746-0bab-4972-a205-9169bece07f9" : characterId
-        let urlString = "https://n8n8n.top/webhook/costumes?character_id=\(effectiveId)"
-        guard let url = URL(string: urlString) else { isLoading = false; return }
-        URLSession.shared.dataTask(with: url) { data, response, error in
+        SupabaseAPI.getCostumes(for: effectiveId) { result in
             DispatchQueue.main.async {
                 isLoading = false
-                if let error = error { errorMessage = error.localizedDescription; return }
-                guard let data = data else { errorMessage = "No data"; return }
-                do { let decoded = try JSONDecoder().decode([CostumeItem].self, from: data); items = decoded } catch { errorMessage = "Decoding error: \(error.localizedDescription)" }
+                switch result {
+                case .success(let decoded):
+                    items = decoded
+                case .failure(let error):
+                    errorMessage = error.localizedDescription
+                }
             }
-        }.resume()
+        }
     }
 }
 

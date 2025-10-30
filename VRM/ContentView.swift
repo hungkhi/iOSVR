@@ -2,6 +2,7 @@ import SwiftUI
 import AVFoundation
 import WebKit
 import Photos
+import SupabaseAPI
 
 // moved to UIComponents.swift
 
@@ -408,11 +409,9 @@ struct ContentView: View {
     
     private func fetchCharactersList() {
         guard allCharacters.isEmpty else { return }
-        var request = URLRequest(url: URL(string: "https://n8n8n.top/webhook/characters")!)
-        request.httpMethod = "GET"
-        URLSession.shared.dataTask(with: request) { data, _, _ in
-            guard let data = data else { return }
-            if let items = try? JSONDecoder().decode([CharacterItem].self, from: data) {
+        SupabaseAPI.getCharacters { result in
+            switch result {
+            case .success(let items):
                 DispatchQueue.main.async {
                     self.allCharacters = items
                     if let idx = items.firstIndex(where: { $0.id == self.currentCharacterId }) {
@@ -421,8 +420,11 @@ struct ContentView: View {
                         self.currentCharacterIndex = 0
                     }
                 }
+            case .failure(let error):
+                // handle error, show alert/toast if you'd like
+                print("Characters API error: \(error.localizedDescription)")
             }
-        }.resume()
+        }
     }
 
     private func changeCharacter(by delta: Int) {

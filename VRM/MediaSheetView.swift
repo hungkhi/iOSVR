@@ -1,5 +1,6 @@
 import SwiftUI
 import AVKit
+import SupabaseAPI
 // Simple shared cache to keep AVPlayer alive across view lifecycle (prevents black flash)
 private final class PlayerCache {
     static let shared = PlayerCache()
@@ -102,21 +103,18 @@ struct MediaSheetView: View {
         errorMessage = nil
         items.removeAll()
         let effectiveId = characterId
-        guard let url = URL(string: "https://n8n8n.top/webhook/medias?character_id=\(effectiveId)") else { isLoading = false; return }
-        URLSession.shared.dataTask(with: url) { data, _, error in
+        SupabaseAPI.getMedias(for: effectiveId) { result in
             DispatchQueue.main.async {
                 isLoading = false
-                if let error { errorMessage = error.localizedDescription; return }
-                guard let data else { errorMessage = "No data"; return }
-                do {
-                    let decoded = try JSONDecoder().decode([MediaItem].self, from: data)
+                switch result {
+                case .success(let decoded):
                     items = decoded
                     prefetch(items: decoded)
-                } catch {
+                case .failure(let error):
                     errorMessage = error.localizedDescription
                 }
             }
-        }.resume()
+        }
     }
 
     private func prefetch(items: [MediaItem]) {

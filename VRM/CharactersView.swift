@@ -1,4 +1,5 @@
 import SwiftUI
+import SupabaseAPI
 
 // MARK: - Networking
 // CharactersView: fetches from API and displays image + name cards
@@ -98,29 +99,17 @@ struct CharactersView: View {
         isLoading = true
         errorMessage = nil
         characters.removeAll()
-        var request = URLRequest(url: URL(string: "https://n8n8n.top/webhook/characters")!)
-        request.httpMethod = "GET"
-        URLSession.shared.dataTask(with: request) { data, response, error in
+        SupabaseAPI.getCharacters { result in
             DispatchQueue.main.async {
                 isLoading = false
-                if let error = error { errorMessage = error.localizedDescription; return }
-                guard let data = data else { errorMessage = "No data"; return }
-                do {
-                    var cleaned = data
-                    if var str = String(data: data, encoding: .utf8) {
-                        str = str.trimmingCharacters(in: .whitespacesAndNewlines)
-                        if let range = str.range(of: "]", options: .backwards) {
-                            let sliced = String(str[str.startIndex..<range.upperBound])
-                            if let slicedData = sliced.data(using: .utf8) { cleaned = slicedData }
-                        }
-                    }
-                    let items = try JSONDecoder().decode([CharacterItem].self, from: cleaned)
+                switch result {
+                case .success(let items):
                     characters = items
-                } catch {
-                    errorMessage = "Decoding error: \(error.localizedDescription)"
+                case .failure(let error):
+                    errorMessage = error.localizedDescription
                 }
             }
-        }.resume()
+        }
     }
 }
 
