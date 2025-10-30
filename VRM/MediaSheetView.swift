@@ -73,6 +73,7 @@ struct MediaSheetView: View {
                                         MediaCell(item: item)
                                     }
                                     .buttonStyle(.plain)
+                                    .onAppear { prewarmAround(index: idx) }
                                 }
                             }
                             .padding(12)
@@ -142,6 +143,21 @@ struct MediaSheetView: View {
             }
         }
     }
+
+    private func prewarmAround(index: Int) {
+        guard !items.isEmpty else { return }
+        let candidates = [index + 1, index + 2]
+        for i in candidates {
+            guard items.indices.contains(i) else { continue }
+            let it = items[i]
+            let u = it.url.lowercased()
+            if u.hasSuffix(".mp4") || u.contains("video"), let url = URL(string: it.url) {
+                let p = PlayerCache.shared.player(for: url, muted: true)
+                p.currentItem?.preferredForwardBufferDuration = 5
+                // Don't start playback here; keep it ready
+            }
+        }
+    }
 }
 
 private struct MediaCell: View {
@@ -156,7 +172,9 @@ private struct MediaCell: View {
                 if isReady {
                     VideoPlayer(player: player)
                         .allowsHitTesting(false)
-                        .onAppear { if player == nil { setupPlayer() } }
+                        .onAppear {
+                            if player == nil { setupPlayer() } else { player?.play() }
+                        }
                         .onDisappear { player?.pause() }
                 } else {
                     MediaSkeletonView()
@@ -250,10 +268,19 @@ private struct MutedLoopingVideoView: View {
                     let p = PlayerCache.shared.player(for: url, muted: isMuted)
                     p.play()
                     player = p
+                    // Ensure audio plays even with silent switch
+                    let session = AVAudioSession.sharedInstance()
+                    try? session.setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
+                    try? session.setActive(true, options: [])
                 }
             }
             .onChange(of: isMuted) { _, newVal in
                 player?.isMuted = newVal
+                if !newVal {
+                    let session = AVAudioSession.sharedInstance()
+                    try? session.setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
+                    try? session.setActive(true, options: [])
+                }
             }
             .onDisappear {
                 // Keep player cached to avoid black frame when quickly returning
@@ -312,7 +339,7 @@ private struct MediaLightboxPager: View {
     let startIndex: Int
     let onClose: () -> Void
     @State private var index: Int = 0
-    @State private var isMuted: Bool = true
+    @State private var isMuted: Bool = false
     @State private var dragY: CGFloat = 0
     var body: some View {
         NavigationStack {
@@ -365,7 +392,26 @@ private struct MediaLightboxPager: View {
                 }
             }
         }
-        .onAppear { index = min(max(0, startIndex), max(0, items.count - 1)) }
+        .onAppear {
+            index = min(max(0, startIndex), max(0, items.count - 1))
+            // Autoplay with sound when lightbox shows
+            isMuted = false
+            prewarmNeighbors()
+        }
+        .onChange(of: index) { _, _ in prewarmNeighbors() }
+    }
+
+    private func prewarmNeighbors() {
+        let neighbors = [index + 1, index - 1]
+        for i in neighbors {
+            guard items.indices.contains(i) else { continue }
+            let it = items[i]
+            let u = it.url.lowercased()
+            if u.hasSuffix(".mp4") || u.contains("video"), let url = URL(string: it.url) {
+                let p = PlayerCache.shared.player(for: url, muted: true)
+                p.currentItem?.preferredForwardBufferDuration = 5
+            }
+        }
     }
 }
 

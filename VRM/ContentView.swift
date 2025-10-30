@@ -22,7 +22,7 @@ struct ContentView: View {
     @State private var currentCharacterId: String = "74432746-0bab-4972-a205-9169bece07f9"
     @State private var currentCharacterName: String = ""
     @State var currentRoomName: String = ""
-    @State private var isBgmOn: Bool = true
+    @State private var isBgmOn: Bool = false
     // Chat messages: text or voice
     @State var chatMessages: [ChatMessage] = []
     @FocusState private var chatFieldFocused: Bool
@@ -74,7 +74,8 @@ struct ContentView: View {
                 .onAppear {
                     let files = FileDiscovery.discoverFiles()
                     _ = files
-                    webViewRef?.evaluateJavaScript("(function(){try{return window.setBgm&&window.setBgm(true);}catch(e){return false}})();") { _, _ in }
+                    // Ensure background music starts muted by default
+                    webViewRef?.evaluateJavaScript("(function(){try{return window.setBgm&&window.setBgm(false);}catch(e){return false}})();") { _, _ in }
                     // Prefetch character thumbnails for faster grid loading
                     prefetchCharacterThumbnails()
                     // Fetch characters list for swipe up/down navigation
@@ -92,12 +93,8 @@ struct ContentView: View {
                         parallaxController = controller
                         controller.start()
                     }
-                    // Sync initial BGM state
-                    webViewRef?.evaluateJavaScript("(function(){try{return window.isBgmPlaying&&window.isBgmPlaying();}catch(e){return false}})();") { result, _ in
-                        if let playing = result as? Bool {
-                            DispatchQueue.main.async { self.isBgmOn = playing }
-                        }
-                    }
+                    // Set local state to muted by default
+                    DispatchQueue.main.async { self.isBgmOn = false }
                     // Seed title from persisted model name if available
                     if currentCharacterName.isEmpty {
                         let name = UserDefaults.standard.string(forKey: PersistKeys.modelName) ?? ""
