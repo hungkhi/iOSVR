@@ -16,6 +16,7 @@ struct ChatHistoryView: View {
     // UI
     @State private var draft: String = ""
     @State private var backgroundURL: URL? = URL(string: UserDefaults.standard.string(forKey: PersistKeys.backgroundURL) ?? "")
+    @State private var bootingAgent: Bool = false
 
     var body: some View {
         ZStack {
@@ -44,23 +45,24 @@ struct ChatHistoryView: View {
                                     dateHeader(for: r.date)
                                 }
                                 HStack(alignment: .bottom, spacing: 0) {
-                                    if r.is_agent { Spacer(minLength: 0) }
                                     ChatMessageBubble(
                                         message: ChatMessage(kind: .text(r.message), isAgent: r.is_agent),
                                         playbackProgress: 0,
                                         isPlaying: false,
-                                        onPlayPause: {}
+                                        onPlayPause: {},
+                                        lineLimit: nil,
+                                        alignAgentTrailing: true
                                     )
                                     .onTapGesture { toggleTime(r.id) }
-                                    if !r.is_agent { Spacer(minLength: 0) }
+                                    .frame(maxWidth: .infinity, alignment: r.is_agent ? .trailing : .leading)
                                 }
-                                .frame(maxWidth: .infinity)
                                 .id(r.id)
                                 if showTimeFor.contains(r.id) {
                                     Text(timestampString(for: r.date))
                                         .font(.footnote)
                                         .foregroundStyle(.white.opacity(0.8))
                                         .frame(maxWidth: .infinity, alignment: r.is_agent ? .trailing : .leading)
+                                        .transition(.opacity.combined(with: .move(edge: .top)))
                                 }
                             }
                             if isFetching { HStack { Spacer(); ProgressView().tint(.white); Spacer() } }
@@ -68,6 +70,7 @@ struct ChatHistoryView: View {
                         .padding(.horizontal, 20)
                         .padding(.top, 12)
                     }
+                    .scrollIndicators(.hidden)
                     .onAppear {
                         if rows.isEmpty { fetch(reset: true) }
                         scrollToBottom(proxy)
@@ -80,21 +83,39 @@ struct ChatHistoryView: View {
                         rows.append(Row(message: text, is_agent: true, created_at: String(Date().timeIntervalSince1970)))
                         scrollToBottom(proxy)
                     }
+                    .onReceive(convVM.userText) { text in
+                        // Append live user transcripts while on this page
+                        rows.append(Row(message: text, is_agent: false, created_at: isoNow()))
+                        scrollToBottom(proxy)
+                    }
                 }
 
                 // Input bar (same as homepage)
                 ChatInputBar(
                     text: $draft,
                     isConnected: convVM.isConnected,
-                    isBooting: false,
+                    isBooting: bootingAgent,
                     onSend: { msg in send(msg) },
-                    onToggleMic: { Task { if convVM.isConnected { await convVM.endConversation() } else { await convVM.startConversationIfNeeded(agentId: agentId) } } }
+                    onToggleMic: {
+                        let impactFeedback = UIImpactFeedbackGenerator(style: .medium)
+                        impactFeedback.impactOccurred()
+                        if convVM.isConnected {
+                            bootingAgent = false
+                            rows.append(Row(message: "Conversation stopped", is_agent: false, created_at: isoNow()))
+                            Task { await convVM.endConversation() }
+                        } else {
+                            bootingAgent = true
+                            Task { await convVM.startConversationIfNeeded(agentId: agentId) }
+                        }
+                    },
+                    placeholder: (bootingAgent ? "Setting up the conversation..." : (convVM.isConnected ? "Talking..." : "Ask Anything"))
                 )
                 .background(Color.black.opacity(0.25).ignoresSafeArea(edges: .bottom))
             }
         }
         .navigationTitle("Chat History")
         .navigationBarTitleDisplayMode(.inline)
+        .onChange(of: convVM.isConnected) { _, newVal in if newVal { bootingAgent = false } }
     }
 
     // MARK: - Networking
@@ -155,11 +176,15 @@ struct ChatHistoryView: View {
         let is_agent: Bool
         let created_at: String
         var id: String { created_at + "|" + String(message.hashValue) }
-        var date: Date { isoParser.date(from: created_at) ?? Date() }
+        var date: Date { ChatHistoryView.isoParser.date(from: created_at) ?? Date() }
     }
     // Timestamp toggling state
     @State private var showTimeFor: Set<String> = []
-    private func toggleTime(_ id: String) { if showTimeFor.contains(id) { showTimeFor.remove(id) } else { showTimeFor.insert(id) } }
+    private func toggleTime(_ id: String) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            if showTimeFor.contains(id) { showTimeFor.remove(id) } else { showTimeFor.insert(id) }
+        }
+    }
     private func shouldShowHeader(at index: Int) -> Bool {
         guard rows.indices.contains(index) else { return false }
         if index == 0 { return true }
@@ -192,7 +217,7 @@ struct ChatHistoryView: View {
         return fmt.string(from: date)
     }
     private var calendar: Calendar { var c = Calendar.current; c.locale = Locale.current; return c }
-    private var isoParser: ISO8601DateFormatter { ISO8601DateFormatter() }
+    private static let isoParser: ISO8601DateFormatter = ISO8601DateFormatter()
     private func isoNow() -> String { ISO8601DateFormatter().string(from: Date()) }
 }
 

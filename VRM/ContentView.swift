@@ -48,6 +48,21 @@ struct ContentView: View {
     @State private var pendingBackgroundImage: String? = nil
     @State private var pendingRoomNameQueued: String? = nil
     @State private var navigateToChatHistory: Bool = false
+    // Full-screen chat history mode state
+    @State private var showChatHistoryFullScreen: Bool = false
+    @State private var historyRows: [HistoryRow] = []
+    @State private var historyIsFetching: Bool = false
+    private let historyBatchSize: Int = 15
+    @State private var historyOldestCursor: String? = nil
+    @State private var historyShowTimeFor: Set<String> = []
+    @State private var historyReachedEnd: Bool = false
+    // Avatar loading/selection state
+    @State private var loadedAvatarIds: Set<String> = []
+    @State private var pendingAvatarSelection: Int? = nil
+    @State private var lastCharacterIndex: Int = 0
+    @State private var lastSelectionDirection: Int = 0 // +1 down, -1 up
+    // Keyboard handling
+    @State private var keyboardHeight: CGFloat = 0
     // Age gate
     @AppStorage("ageVerified18") private var ageVerified18: Bool = false
     @State private var showAgeConfirm: Bool = false
@@ -160,9 +175,27 @@ struct ContentView: View {
                             chatMessages.append(ChatMessage(kind: .text(text), isAgent: true))
                             while chatMessages.count > 5 { chatMessages.removeFirst() }
                         }
+                        // If in full chat mode, mirror into history list immediately
+                        if showChatHistoryFullScreen {
+                            let now = ISO8601DateFormatter().string(from: Date())
+                            historyRows.append(HistoryRow(message: text, is_agent: true, created_at: now))
+                        }
                         // Persist agent reply
                         persistConversationMessage(text: text, isAgent: true)
                     }
+                    // Receive user transcripts from ElevenLabs ASR and persist/display like typed messages
+                    .onReceive(convVM.userText) { text in
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                            chatMessages.append(ChatMessage(kind: .text(text), isAgent: false))
+                            while chatMessages.count > 5 { chatMessages.removeFirst() }
+                        }
+                        if showChatHistoryFullScreen {
+                            let now = ISO8601DateFormatter().string(from: Date())
+                            historyRows.append(HistoryRow(message: text, is_agent: false, created_at: now))
+                        }
+                        persistConversationMessage(text: text, isAgent: false)
+                    }
+                    
                     .onChange(of: scenePhase) { _, newPhase in
                         switch newPhase {
                         case .active:
@@ -186,10 +219,6 @@ struct ContentView: View {
                                 CharactersView { item in
                                     
                                     applyCharacter(item)
-                                    // Load model by URL if available
-                                    if let url = item.base_model_url, !url.isEmpty {
-                                        loadModelByURLWithSync(url: url, name: item.name)
-                                    }
                                 }
                                 .preferredColorScheme(.dark)
                             } label: { EmptyView() }
@@ -203,6 +232,7 @@ struct ContentView: View {
                         }
                     )
                     .overlay(alignment: .topTrailing) {
+                        if !showChatHistoryFullScreen {
                         ControlButtonsView(
                             onRoomTap: { showRoomSheet = true },
                             onDanceTap: { webViewRef?.evaluateJavaScript("window.triggerDance&&window.triggerDance();") },
@@ -215,31 +245,75 @@ struct ContentView: View {
                                 withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) { showChatList.toggle() }
                             }
                         )
+                        }
+                    }
+                    .overlay(alignment: .bottomTrailing) {
+                        avatarQuickSwitcher()
                     }
                     .overlay(alignment: .top) {
-                        SaveToastView(isVisible: showSavedToast)
+                        if !showChatHistoryFullScreen { SaveToastView(isVisible: showSavedToast) }
                     }
                     .overlay(alignment: .bottom) {
                         VStack(spacing: 6) {
+                            if !showChatHistoryFullScreen {
                             ChatMessagesOverlay(
                                 messages: chatMessages,
                                 showChatList: showChatList,
                                 onSwipeToHide: {
                                     withAnimation(.easeInOut(duration: 0.25)) { showChatList = false }
                                 },
-                                onTap: { withAnimation(.easeInOut(duration: 0.25)) { navigateToChatHistory = true } },
+                                onTap: {
+                                    triggerHaptic(.light)
+                                    withAnimation(.easeInOut(duration: 0.25)) { showChatHistoryFullScreen = true }
+                                    fetchConversationHistory(reset: true)
+                                },
                                 calculateOpacity: calculateOpacity,
                                 bottomInset: 0,
                                 isInputFocused: chatFieldFocused
                             )
+                            }
                             
-                            if chatFieldFocused {
+                            if chatFieldFocused && !showChatHistoryFullScreen {
                                 QuickMessageChips(onSendMessage: sendMessage)
                             }
                         }
                         .padding(.bottom, 8)
                     }
                     .toolbar {
+                        if showChatHistoryFullScreen {
+                            ToolbarItem(placement: .topBarLeading) {
+                                Button(action: { withAnimation(.easeInOut(duration: 0.25)) { showChatHistoryFullScreen = false } }) { Image(systemName: "chevron.backward") }
+                            }
+                            ToolbarItemGroup(placement: .bottomBar) {
+                                ChatInputBar(
+                                    text: $chatText,
+                                    isConnected: convVM.isConnected,
+                                    isBooting: bootingAgent,
+                                    onSend: { msg in
+                                        triggerHaptic(.medium)
+                                        sendMessage(msg)
+                                    },
+                                    onToggleMic: {
+                                        triggerHaptic(.medium)
+                                        if convVM.isConnected {
+                                            bootingAgent = false
+                                            withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                                                chatMessages.append(ChatMessage(kind: .text("Conversation stopped")))
+                                                while chatMessages.count > 5 { chatMessages.removeFirst() }
+                                            }
+                                            Task { await convVM.endConversation() }
+                                        } else {
+                                            bootingAgent = true
+                                            Task { await convVM.startConversationIfNeeded(agentId: currentAgentId.isEmpty ? elevenLabsAgentId : currentAgentId) }
+                                        }
+                                    },
+                                onFocusChanged: { focused in
+                                        chatFieldFocused = focused
+                                },
+                                placeholder: chatPlaceholder()
+                                )
+                            }
+                        } else {
                         ToolbarItem(placement: .topBarLeading) {
                             HStack(spacing: 8) {
                                 Button(action: {
@@ -280,57 +354,34 @@ struct ContentView: View {
                         }
 
                         ToolbarItemGroup(placement: .bottomBar) {
-                            HStack(spacing: 10) {
-                                TextField("", text: $chatText, prompt: Text(chatPlaceholder()).foregroundStyle(.white))
-                                    .textFieldStyle(.plain)
-                                    .textInputAutocapitalization(.sentences)
-                                    .disableAutocorrection(false)
-                                    .background(Color.clear)
-                                    .frame(maxWidth: .infinity)
-                                    .focused($chatFieldFocused)
-                                
-                                if chatFieldFocused || !chatText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                                    Button(action: {
-                                        triggerHaptic(.medium)
-                                        let trimmed = chatText.trimmingCharacters(in: .whitespacesAndNewlines)
-                                        guard !trimmed.isEmpty else { return }
-                                        sendMessage(trimmed)
-                                        chatText = ""
-                                    }) {
-                                        Image(systemName: "paperplane.fill")
-                                    }
-                                    .transition(.opacity.combined(with: .scale))
-                                } else {
-                                    Button(action: {
-                                        triggerHaptic(.medium)
-                                        if convVM.isConnected {
-                                            bootingAgent = false
-                                            // Append system message and trim to last 5
-                                            withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
-                                                chatMessages.append(ChatMessage(kind: .text("Conversation stopped")))
-                                                while chatMessages.count > 5 { chatMessages.removeFirst() }
-                                            }
-                                            Task { await convVM.endConversation() }
-                                        } else {
-                                            bootingAgent = true
-                                            Task { await convVM.startConversationIfNeeded(agentId: currentAgentId.isEmpty ? elevenLabsAgentId : currentAgentId) }
+                            ChatInputBar(
+                                text: $chatText,
+                                isConnected: convVM.isConnected,
+                                isBooting: bootingAgent,
+                                onSend: { msg in
+                                    triggerHaptic(.medium)
+                                    sendMessage(msg)
+                                },
+                                onToggleMic: {
+                                    triggerHaptic(.medium)
+                                    if convVM.isConnected {
+                                        bootingAgent = false
+                                        withAnimation(.spring(response: 0.3, dampingFraction: 0.9)) {
+                                            chatMessages.append(ChatMessage(kind: .text("Conversation stopped")))
+                                            while chatMessages.count > 5 { chatMessages.removeFirst() }
                                         }
-                                    }) {
-                                        if bootingAgent {
-                                            ProgressView()
-                                                .progressViewStyle(.circular)
-                                                .padding(.trailing, -6)
-                                        } else if convVM.isConnected {
-                                            Image(systemName: "stop.fill")
-                                        } else {
-                                            Image(systemName: "mic.fill")
-                                        }
+                                        Task { await convVM.endConversation() }
+                                    } else {
+                                        bootingAgent = true
+                                        Task { await convVM.startConversationIfNeeded(agentId: currentAgentId.isEmpty ? elevenLabsAgentId : currentAgentId) }
                                     }
-                                    .transition(.opacity.combined(with: .scale))
-                                }
-                            }
-                            .padding(.vertical, 4)
-                            .padding(.horizontal, 16)
+                                },
+                                onFocusChanged: { focused in
+                                    chatFieldFocused = focused
+                                },
+                                placeholder: chatPlaceholder()
+                            )
+                        }
                         }
                     }
                     .onChange(of: convVM.isConnected) { _, newVal in
@@ -386,11 +437,16 @@ struct ContentView: View {
                         SettingsView(authManager: authManager)
                                 .preferredColorScheme(.dark)
                     }
+                    // Full-screen chat history overlay content
+                    if showChatHistoryFullScreen {
+                        historyFullScreenView
+                    }
                     if chatFieldFocused {
                         Color.clear
                             .contentShape(Rectangle())
                             .onTapGesture {
                                 chatFieldFocused = false
+                                dismissKeyboard()
                             }
                     }
                 }
@@ -431,6 +487,11 @@ struct ContentView: View {
         // Add message to chat list
         withAnimation(.spring(response: 0.35, dampingFraction: 0.9, blendDuration: 0.1)) {
             chatMessages.append(ChatMessage(kind: .text(message)))
+        }
+        // Mirror into full chat list if visible
+        if showChatHistoryFullScreen {
+            let now = ISO8601DateFormatter().string(from: Date())
+            historyRows.append(HistoryRow(message: message, is_agent: false, created_at: now))
         }
         // Also send to ElevenLabs agent if connected
         Task { await convVM.sendText(message) }
@@ -490,13 +551,13 @@ struct ContentView: View {
     private func fetchCharactersList() {
         guard allCharacters.isEmpty else { return }
         let query: [URLQueryItem] = [
-            URLQueryItem(name: "select", value: "id,name,description,thumbnail_url,base_model_url,agent_elevenlabs_id"),
+            URLQueryItem(name: "select", value: "id,name,description,thumbnail_url,avatar,base_model_url,agent_elevenlabs_id"),
             URLQueryItem(name: "is_public", value: "is.true")
         ]
         guard let request = makeSupabaseRequest(path: "/rest/v1/characters", queryItems: query) else { return }
         URLSession.shared.dataTask(with: request) { data, _, _ in
             guard let data = data else { return }
-            if let items = try? JSONDecoder().decode([CharacterItem].self, from: data) {
+        if let items = try? JSONDecoder().decode([CharacterItem].self, from: data) {
                 DispatchQueue.main.async {
                     self.allCharacters = items
                     if let idx = items.firstIndex(where: { $0.id == self.currentCharacterId }) {
@@ -504,9 +565,148 @@ struct ContentView: View {
                     } else {
                         self.currentCharacterIndex = 0
                     }
+                self.lastCharacterIndex = self.currentCharacterIndex
+                    // Preload avatar images for smooth switching
+                    prefetchAvatarImages(for: items)
                 }
             }
         }.resume()
+    }
+
+    // MARK: - Avatar Quick Switcher
+    private func selectCharacter(at index: Int) {
+        guard allCharacters.indices.contains(index) else { return }
+        let oldIndex = currentCharacterIndex
+        lastCharacterIndex = oldIndex
+        lastSelectionDirection = selectionDirection(from: oldIndex, to: index)
+        let item = allCharacters[index]
+        withAnimation(.spring(response: 0.5, dampingFraction: 0.95, blendDuration: 0.2)) {
+            applyCharacter(item)
+        }
+    }
+
+    private func selectionDirection(from oldIndex: Int, to newIndex: Int) -> Int {
+        let count = max(1, allCharacters.count)
+        if count == 1 { return 0 }
+        let forward = (newIndex - oldIndex + count) % count
+        let backward = (oldIndex - newIndex + count) % count
+        return forward <= backward ? 1 : -1
+    }
+
+    private func handleAvatarTap(_ index: Int) {
+        guard allCharacters.indices.contains(index) else { return }
+        triggerHaptic(.light)
+        let targetId = allCharacters[index].id
+        if loadedAvatarIds.contains(targetId) {
+            selectCharacter(at: index)
+        } else {
+            pendingAvatarSelection = index
+            // Fallback: proceed after a short delay if cache still not ready
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
+                if self.pendingAvatarSelection == index {
+                    self.selectCharacter(at: index)
+                    self.pendingAvatarSelection = nil
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func avatarQuickSwitcher() -> some View {
+        if showChatHistoryFullScreen || allCharacters.isEmpty {
+            EmptyView()
+        } else {
+            let count = allCharacters.count
+            let current = currentCharacterIndex
+            let prev = (current - 1 + count) % count
+            let next = (current + 1) % count
+            let displayItems: [CharacterItem] = [allCharacters[prev], allCharacters[current], allCharacters[next]]
+            VStack(spacing: 14) {
+                ForEach(displayItems, id: \.id) { item in
+                    let isSelected = item.id == allCharacters[current].id
+                    let opacity = isSelected ? 1.0 : 0.5
+                    let urlString = item.avatar ?? item.thumbnail_url ?? ""
+                    if let url = URL(string: urlString), !urlString.isEmpty {
+                        AsyncImage(url: url) { phase in
+                            switch phase {
+                            case .success(let image):
+                                image.resizable().scaledToFill()
+                                    .contentTransition(.opacity)
+                                    .onAppear {
+                                        loadedAvatarIds.insert(item.id)
+                                        if let pending = pendingAvatarSelection, allCharacters.indices.contains(pending), allCharacters[pending].id == item.id {
+                                            selectCharacter(at: pending)
+                                            pendingAvatarSelection = nil
+                                        }
+                                    }
+                            default:
+                                Color.white.opacity(0.2)
+                            }
+                        }
+                        .frame(width: 56, height: 56)
+                        .clipShape(Circle())
+                        .overlay(
+                            Circle()
+                                .stroke(Color.white.opacity(0.85), lineWidth: 2)
+                        )
+                        .opacity(opacity)
+                        .scaleEffect(isSelected ? 1.0 : 0.92)
+                        .onTapGesture {
+                            if let index = allCharacters.firstIndex(where: { $0.id == item.id }) {
+                                handleAvatarTap(index)
+                            }
+                        }
+                        .transition(.asymmetric(
+                            insertion: .move(edge: lastSelectionDirection >= 0 ? .bottom : .top).combined(with: .opacity),
+                            removal: .move(edge: lastSelectionDirection >= 0 ? .top : .bottom).combined(with: .opacity)
+                        ))
+                    } else {
+                        Circle()
+                            .fill(Color.white.opacity(0.15))
+                            .frame(width: 56, height: 56)
+                            .overlay(
+                                Circle()
+                                    .stroke(Color.white.opacity(0.85), lineWidth: 2)
+                            )
+                            .opacity(opacity)
+                            .scaleEffect(isSelected ? 1.0 : 0.92)
+                            .onTapGesture {
+                                if let index = allCharacters.firstIndex(where: { $0.id == item.id }) {
+                                    handleAvatarTap(index)
+                                }
+                            }
+                            .transition(.asymmetric(
+                                insertion: .move(edge: lastSelectionDirection >= 0 ? .bottom : .top).combined(with: .opacity),
+                                removal: .move(edge: lastSelectionDirection >= 0 ? .top : .bottom).combined(with: .opacity)
+                            ))
+                    }
+                }
+            }
+            .padding(.trailing, 14)
+            .padding(.bottom, 96)
+            .opacity(isModelLoading ? 0.5 : 1.0)
+            .allowsHitTesting(!isModelLoading)
+            .animation(.spring(response: 0.55, dampingFraction: 0.92, blendDuration: 0.25), value: currentCharacterIndex)
+        }
+    }
+
+    // MARK: - Avatar Prefetching
+    private func prefetchAvatarImages(for characters: [CharacterItem]) {
+        let urls: [URL] = characters.compactMap { item in
+            if let s = item.avatar ?? item.thumbnail_url, let u = URL(string: s) { return u }
+            return nil
+        }
+        let session = URLSession(configuration: .default)
+        for url in urls {
+            var req = URLRequest(url: url)
+            req.cachePolicy = .returnCacheDataElseLoad
+            let task = session.dataTask(with: req) { data, response, _ in
+                guard let data = data, let response = response else { return }
+                let cached = CachedURLResponse(response: response, data: data)
+                URLCache.shared.storeCachedResponse(cached, for: req)
+            }
+            task.resume()
+        }
     }
 
     // Add this helper to centralize the update logic
@@ -698,28 +898,7 @@ struct ContentView: View {
     private func applyPendingBackgroundIfAny() {
         guard let image = pendingBackgroundImage else { return }
         let escaped = image.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-        // Retry image load in JS to avoid white flashes when network hiccups
-        let script = """
-        (function(){
-          try{
-            var url = "\(escaped)";
-            var attempts = 0; var maxAttempts = 3;
-            document.body.style.backgroundColor = '#000';
-            function tryLoad(){
-              attempts++;
-              var img = new Image();
-              img.crossOrigin = 'anonymous';
-              img.onload = function(){
-                document.body.style.backgroundImage = "url('"+url+"')";
-                document.body.style.backgroundColor = '';
-              };
-              img.onerror = function(){ if (attempts < maxAttempts){ setTimeout(tryLoad, 450); } };
-              img.src = url + (url.indexOf('?')>-1?'&':'?') + 't=' + Date.now();
-            }
-            tryLoad();
-          }catch(e){}
-        })();
-        """
+        let script = "window.setBackgroundImage&&window.setBackgroundImage(\"\(escaped)\");"
         webViewRef?.evaluateJavaScript(script)
         // Re-mute BGM after DOM style change in case page-side code toggles it
         muteBgmIfNeeded()
@@ -800,6 +979,156 @@ struct ContentView: View {
         }.resume()
     }
 
+    // MARK: - Full-screen Chat History Helpers
+    private struct HistoryRow: Decodable, Identifiable {
+        let message: String
+        let is_agent: Bool
+        let created_at: String
+        var id: String { created_at + "|" + String(message.hashValue) }
+        var date: Date { ISO8601DateFormatter().date(from: created_at) ?? Date() }
+    }
+
+    private func fetchConversationHistory(reset: Bool) {
+        guard !currentCharacterId.isEmpty else { return }
+        if historyIsFetching { return }
+        if reset { historyOldestCursor = nil; historyRows.removeAll(); historyReachedEnd = false }
+        historyIsFetching = true
+        var query: [URLQueryItem] = [
+            URLQueryItem(name: "select", value: "message,is_agent,created_at"),
+            URLQueryItem(name: "character_id", value: "eq.\(currentCharacterId)"),
+            URLQueryItem(name: "order", value: "created_at.desc"),
+            URLQueryItem(name: "limit", value: String(historyBatchSize))
+        ]
+        if let cursor = historyOldestCursor, !cursor.isEmpty {
+            query.append(URLQueryItem(name: "created_at", value: "lt.\(cursor)"))
+        }
+        if let uid = AuthManager.shared.user?.id.uuidString {
+            query.append(URLQueryItem(name: "user_id", value: "eq.\(uid)"))
+        } else if AuthManager.shared.isGuest, let cid = UserDefaults.standard.string(forKey: PersistKeys.clientId) ?? ensureClientId() {
+            query.append(URLQueryItem(name: "client_id", value: "eq.\(cid)"))
+        }
+        guard var req = makeSupabaseRequest(path: "/rest/v1/conversation", queryItems: query) else { historyIsFetching = false; return }
+        if AuthManager.shared.isGuest, let cid = UserDefaults.standard.string(forKey: PersistKeys.clientId) { req.setValue(cid, forHTTPHeaderField: "X-Client-Id") }
+        URLSession.shared.dataTask(with: req) { data, _, _ in
+            DispatchQueue.main.async {
+                historyIsFetching = false
+                guard let data = data, let fetched = try? JSONDecoder().decode([HistoryRow].self, from: data) else { return }
+                if fetched.isEmpty { historyReachedEnd = true; return }
+                let ordered = fetched.reversed()
+                if reset {
+                    historyRows = Array(ordered)
+                } else {
+                    historyRows.insert(contentsOf: ordered, at: 0)
+                }
+                historyOldestCursor = historyRows.first?.created_at
+            }
+        }.resume()
+    }
+
+    private func toggleHistoryTimestamp(_ id: String) {
+        withAnimation(.easeInOut(duration: 0.2)) {
+            if historyShowTimeFor.contains(id) { historyShowTimeFor.remove(id) } else { historyShowTimeFor.insert(id) }
+        }
+    }
+
+    @ViewBuilder
+    private var historyFullScreenView: some View {
+        VStack(spacing: 0) {
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        Color.clear.frame(height: 1).id("top").onAppear { fetchConversationHistory(reset: false) }
+                        if historyReachedEnd {
+                            HStack { Spacer(); Text("End of the conversation")
+                                    .font(.footnote.weight(.semibold))
+                                    .foregroundStyle(.white.opacity(0.8))
+                                Spacer() }
+                                .padding(.vertical, 8)
+                        }
+                        ForEach(Array(historyRows.enumerated()), id: \.element.id) { pair in
+                            let r = pair.element
+                            HStack(alignment: .bottom, spacing: 0) {
+                                ChatMessageBubble(
+                                    message: ChatMessage(kind: .text(r.message), isAgent: r.is_agent),
+                                    playbackProgress: 0,
+                                    isPlaying: false,
+                                    onPlayPause: {},
+                                    lineLimit: nil,
+                                    alignAgentTrailing: true
+                                )
+                                .onTapGesture { toggleHistoryTimestamp(r.id) }
+                                .frame(maxWidth: .infinity, alignment: r.is_agent ? .trailing : .leading)
+                            }
+                            .id(r.id)
+                            if historyShowTimeFor.contains(r.id) {
+                                Text(historyTimestampString(for: r.date))
+                                    .font(.footnote)
+                                    .foregroundStyle(.white.opacity(0.8))
+                                    .frame(maxWidth: .infinity, alignment: r.is_agent ? .trailing : .leading)
+                                    .transition(.opacity.combined(with: .move(edge: .top)))
+                            }
+                        }
+                        if historyIsFetching { HStack { Spacer(); ProgressView().tint(.white); Spacer() } }
+                        // Bottom sentinel for reliable scroll-to-bottom
+                        Color.clear.frame(height: 1).id("bottom")
+                    }
+                    .padding(.horizontal, 20)
+                    .padding(.top, 12)
+                }
+                .scrollIndicators(.hidden)
+                // Keep list above the bottom input by reserving insets instead of fixed padding
+                .safeAreaInset(edge: .bottom) {
+                    Color.clear.frame(height: max(72, keyboardHeight + 72))
+                }
+                .onAppear {
+                    if historyRows.isEmpty { fetchConversationHistory(reset: true) }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
+                    }
+                }
+                .onChange(of: historyRows.count) { _, _ in
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
+                    }
+                }
+                .onChange(of: keyboardHeight) { _, _ in
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+                        withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
+                    }
+                }
+            }
+        }
+        .contentShape(Rectangle())
+        .simultaneousGesture(TapGesture().onEnded { chatFieldFocused = false; dismissKeyboard() })
+        .simultaneousGesture(
+            DragGesture(minimumDistance: 20, coordinateSpace: .local)
+                .onEnded { value in
+                    let dx = value.translation.width
+                    let dy = value.translation.height
+                    if abs(dx) > abs(dy), dx > 40 {
+                        withAnimation(.easeInOut(duration: 0.25)) { showChatHistoryFullScreen = false }
+                    }
+                }
+        )
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+            if let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                let height = max(0, UIScreen.main.bounds.height - frame.origin.y)
+                keyboardHeight = height
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+            keyboardHeight = 0
+        }
+        .transition(.move(edge: .bottom).combined(with: .opacity))
+        .ignoresSafeArea(edges: .bottom)
+    }
+
+    private func historyTimestampString(for date: Date) -> String {
+        let fmt = DateFormatter(); fmt.locale = Locale.current
+        fmt.dateStyle = .medium; fmt.timeStyle = .short
+        return fmt.string(from: date)
+    }
+
     private func changeCharacter(by delta: Int) {
         guard !allCharacters.isEmpty else { return }
         let count = allCharacters.count
@@ -870,6 +1199,12 @@ struct ContentView: View {
         }
     }
     
+    private func dismissKeyboard() {
+        #if canImport(UIKit)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+        #endif
+    }
+
     private func triggerHaptic(_ style: UIImpactFeedbackGenerator.FeedbackStyle) {
         #if canImport(UIKit)
         guard hapticsEnabled else { return }

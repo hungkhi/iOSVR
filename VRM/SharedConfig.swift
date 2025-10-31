@@ -3,3 +3,7 @@ import Foundation
 
 let SUPABASE_URL = "https://sgkkvcrnjlpqybevzxiy.supabase.co"
 let SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InNna2t2Y3JuamxwcXliZXZ6eGl5Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjE2MjA1MTEsImV4cCI6MjA3NzE5NjUxMX0.Jt0GI2EcQYwVF3eqyK2y9avYBN4I6KwsOPiAHKp4YAs"
+
+extension Notification.Name {
+    static let initLiquidGlass = Notification.Name("InitLiquidGlass")
+}

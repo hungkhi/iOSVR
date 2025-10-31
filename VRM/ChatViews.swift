@@ -17,6 +17,8 @@ struct ChatMessageBubble: View {
     let playbackProgress: Double
     let isPlaying: Bool
     let onPlayPause: () -> Void
+    var lineLimit: Int? = nil
+    var alignAgentTrailing: Bool = false
     
     private var backgroundColor: Color {
         // Agent messages: stronger pink; User messages: translucent black
@@ -46,7 +48,8 @@ struct ChatMessageBubble: View {
         Text(text)
             .font(.system(size: 13, weight: .semibold))
             .foregroundStyle(.white)
-            .lineLimit(nil)
+            .lineLimit(lineLimit)
+            .truncationMode(.tail)
             .fixedSize(horizontal: false, vertical: true)
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
@@ -58,7 +61,7 @@ struct ChatMessageBubble: View {
                     .stroke(strokeColor, lineWidth: 1)
             )
             .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 1)
-            .frame(maxWidth: maxWidth, alignment: .leading)
+            .frame(maxWidth: maxWidth, alignment: (alignAgentTrailing && message.isAgent) ? .trailing : .leading)
     }
     
     private func voiceMessageView(url: URL, duration: Int, samples: [Float]) -> some View {
@@ -79,7 +82,7 @@ struct ChatMessageBubble: View {
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
-        .frame(maxWidth: maxWidth, alignment: .leading)
+        .frame(maxWidth: maxWidth, alignment: (alignAgentTrailing && message.isAgent) ? .trailing : .leading)
         .background(voiceMessageBackground)
         .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay(
@@ -164,7 +167,8 @@ struct ChatMessagesOverlay: View {
                 message: message,
                 playbackProgress: 0.0,
                 isPlaying: false,
-                onPlayPause: { }
+                onPlayPause: { },
+                lineLimit: (index == messages.count - 1 ? nil : 3)
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -250,17 +254,22 @@ struct ChatInputBar: View {
     var isBooting: Bool
     var onSend: (String) -> Void
     var onToggleMic: () -> Void
+    var onFocusChanged: (Bool) -> Void = { _ in }
+    var placeholder: String = "Ask Anything"
     @FocusState private var isFocused: Bool
 
     var body: some View {
         HStack(spacing: 10) {
-            TextField("", text: $text, prompt: Text("Ask Anything").foregroundStyle(.white))
+            TextField("", text: $text, prompt: Text(placeholder).foregroundStyle(.primary))
                 .textFieldStyle(.plain)
                 .textInputAutocapitalization(.sentences)
                 .disableAutocorrection(false)
                 .background(Color.clear)
                 .frame(maxWidth: .infinity)
                 .focused($isFocused)
+                .onChange(of: isFocused) { _, newVal in
+                    onFocusChanged(newVal)
+                }
 
             if isFocused || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 Button(action: {

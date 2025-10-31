@@ -101,6 +101,7 @@ private struct SplashView: View {
             } else {
                 // Splash image not found; skipping console log per requirements
             }
+            
         }
     }
 }

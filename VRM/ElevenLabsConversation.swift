@@ -16,6 +16,8 @@ final class ConversationViewModel: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
     // Emit agent text messages
     let agentText = PassthroughSubject<String, Never>()
+    // Emit user transcripts recognized by ElevenLabs ASR
+    let userText = PassthroughSubject<String, Never>()
 
     func startConversationIfNeeded(agentId: String) async {
         if conversation != nil { return }
@@ -72,7 +74,7 @@ final class ConversationViewModel: ObservableObject {
             }
             .store(in: &cancellables)
 
-        // Forward latest agent text content (best-effort; relies on SDK types)
+        // Forward latest text content by role (best-effort; relies on SDK types)
         conversation.$messages
             .receive(on: DispatchQueue.main)
             .compactMap { $0.last }
@@ -82,6 +84,8 @@ final class ConversationViewModel: ObservableObject {
                 let roleString = String(describing: msg.role)
                 if roleString.lowercased().contains("agent") {
                     self?.agentText.send(msg.content)
+                } else if roleString.lowercased().contains("user") {
+                    self?.userText.send(msg.content)
                 }
             }
             .store(in: &cancellables)
