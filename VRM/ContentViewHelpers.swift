@@ -24,27 +24,20 @@ extension ContentView {
     }
     
     func captureAndSaveCurrentBackgroundAndRoom() {
-        let bgJS = "(function(){try{const s=getComputedStyle(document.body).backgroundImage;const m=s&&s.match(/url\\(\\\"?([^\\\"]+)\\\"?\\)/);return m?m[1]:'';}catch(e){return ''}})();"
+        let bgJS = "(function(){try{const s=getComputedStyle(document.body).backgroundImage||'';const m=s&&s.match(/url\\([\\\"']?([^\\)\\\"']+)[\\\"']?\\)/);return m?m[1]:'';}catch(e){return ''}})();"
         webViewRef?.evaluateJavaScript(bgJS, completionHandler: { result, _ in
-            if let url = result as? String, !url.isEmpty {
-                UserDefaults.standard.set(url, forKey: PersistKeys.backgroundURL)
-                // Resolve room_id by image URL and upsert id (not raw image)
-                var query: [URLQueryItem] = [
-                    URLQueryItem(name: "select", value: "id,name"),
-                    URLQueryItem(name: "image", value: "eq.\(url)"),
-                    URLQueryItem(name: "limit", value: "1")
-                ]
-                if let req = makeSupabaseRequest(path: "/rest/v1/rooms", queryItems: query) {
-                    URLSession.shared.dataTask(with: req) { data, _, _ in
-                        guard let data = data,
-                              let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
-                              let row = arr.first,
-                              let rid = row["id"] as? String else { return }
-                        DispatchQueue.main.async {
-                            setUserCurrentRoom(roomId: rid)
+            let url = result as? String ?? ""
+            if url.isEmpty {
+                // Retry once shortly after transition if CSS not yet updated
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                    self.webViewRef?.evaluateJavaScript(bgJS, completionHandler: { result2, _ in
+                        if let url2 = result2 as? String, !url2.isEmpty {
+                            persistAndUpsertBackground(url2)
                         }
-                    }.resume()
+                    })
                 }
+            } else {
+                persistAndUpsertBackground(url)
             }
         })
         webViewRef?.evaluateJavaScript("(function(){try{return window.getCurrentRoomName&&window.getCurrentRoomName();}catch(e){return ''}})();", completionHandler: { result, _ in
@@ -54,6 +47,27 @@ extension ContentView {
                 // No direct upsert for name; server stores only ids
             }
         })
+    }
+    
+    private func persistAndUpsertBackground(_ url: String) {
+        UserDefaults.standard.set(url, forKey: PersistKeys.backgroundURL)
+        // Resolve room_id by image URL and upsert id (not raw image)
+        var query: [URLQueryItem] = [
+            URLQueryItem(name: "select", value: "id,name"),
+            URLQueryItem(name: "image", value: "eq.\(url)"),
+            URLQueryItem(name: "limit", value: "1")
+        ]
+        if let req = makeSupabaseRequest(path: "/rest/v1/rooms", queryItems: query) {
+            URLSession.shared.dataTask(with: req) { data, _, _ in
+                guard let data = data,
+                      let arr = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+                      let row = arr.first,
+                      let rid = row["id"] as? String else { return }
+                DispatchQueue.main.async {
+                    setUserCurrentRoom(roomId: rid)
+                }
+            }.resume()
+        }
     }
     
     func prefetchCharacterThumbnails() {

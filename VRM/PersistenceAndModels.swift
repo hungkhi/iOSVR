@@ -9,6 +9,8 @@ struct PersistKeys {
     static let backgroundURL = "persist.backgroundURL"
     static let roomName = "persist.roomName"
     static let clientId = "persist.clientId"
+    static let hasRatedApp = "persist.hasRatedApp"
+    static let lastReviewPromptAt = "persist.lastReviewPromptAt"
 }
 
 // MARK: - Supabase Configuration

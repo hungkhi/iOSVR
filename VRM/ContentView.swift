@@ -23,6 +23,7 @@ struct ContentView: View {
     @State private var currentCharacterId: String = "74432746-0bab-4972-a205-9169bece07f9"
     @State private var currentCharacterName: String = ""
     @State var currentRoomName: String = ""
+    @State private var currentRoomId: String? = nil
     @State private var isBgmOn: Bool = false
     // Chat messages: text or voice
     @State var chatMessages: [ChatMessage] = []
@@ -47,6 +48,8 @@ struct ContentView: View {
     @State private var isModelLoading: Bool = false
     @State private var pendingBackgroundImage: String? = nil
     @State private var pendingRoomNameQueued: String? = nil
+    // Rooms ordering for background swipe
+    @State private var allRooms: [RoomItem] = []
     @State private var navigateToChatHistory: Bool = false
     // Full-screen chat history mode state
     @State private var showChatHistoryFullScreen: Bool = false
@@ -69,6 +72,8 @@ struct ContentView: View {
     @State private var showAgeBlocked: Bool = false
     @State private var showTermsSheet: Bool = false
     @State private var showPrivacySheet: Bool = false
+    // Post-conversation feedback (managed by view model)
+    @StateObject private var feedbackVM = FeedbackViewModel()
     // Settings toggles
     @AppStorage("settings.hapticsEnabled") private var hapticsEnabled: Bool = true
     @AppStorage("settings.autoPlayMusic") private var autoPlayMusic: Bool = false
@@ -95,15 +100,7 @@ struct ContentView: View {
                                 triggerHaptic(.light)
                                 // Horizontal swipe -> change background
                                 if abs(dx) > abs(dy), abs(dx) > 40 {
-                                    if dx < 0 {
-                                        webViewRef?.evaluateJavaScript("window.nextBackground&&window.nextBackground();")
-                                    } else {
-                                        webViewRef?.evaluateJavaScript("window.prevBackground&&window.prevBackground();")
-                                    }
-                            // Capture and persist current background and room name after transition
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
-                                captureAndSaveCurrentBackgroundAndRoom()
-                                    }
+                                    advanceRoom(by: dx < 0 ? 1 : -1)
                                 }
                                 // Vertical swipe -> change character (random)
                                 else if abs(dy) > 40 {
@@ -115,6 +112,10 @@ struct ContentView: View {
                     .onAppear {
                         let files = FileDiscovery.discoverFiles()
                         _ = files
+                        // Seed currentCharacterId from persistence so initial selection matches saved character
+                        if let persistedId = UserDefaults.standard.string(forKey: PersistKeys.characterId), !persistedId.isEmpty {
+                            currentCharacterId = persistedId
+                        }
                         // Respect auto-play setting at launch
                         if autoPlayMusic {
                             BackgroundMusicManager.shared.play()
@@ -129,8 +130,9 @@ struct ContentView: View {
                         fetchCharactersList()
                         // Prefetch default character's costume thumbnails
                         prefetchCostumeThumbnails(for: currentCharacterId)
-                        // Prefetch room thumbnails for faster room sheet loading
+                        // Prefetch room thumbnails and pull ordered list for swipe sequencing
                         prefetchRoomThumbnails()
+                        fetchRoomsOrder()
                         // Start parallax updates
                         if parallaxController == nil {
                             let controller = ParallaxController { dx, dy in
@@ -175,6 +177,7 @@ struct ContentView: View {
                             chatMessages.append(ChatMessage(kind: .text(text), isAgent: true))
                             while chatMessages.count > 5 { chatMessages.removeFirst() }
                         }
+                        feedbackVM.markInteractedIfConnected(convVM.isConnected)
                         // If in full chat mode, mirror into history list immediately
                         if showChatHistoryFullScreen {
                             let now = ISO8601DateFormatter().string(from: Date())
@@ -189,6 +192,7 @@ struct ContentView: View {
                             chatMessages.append(ChatMessage(kind: .text(text), isAgent: false))
                             while chatMessages.count > 5 { chatMessages.removeFirst() }
                         }
+                        feedbackVM.markInteractedIfConnected(convVM.isConnected)
                         if showChatHistoryFullScreen {
                             let now = ISO8601DateFormatter().string(from: Date())
                             historyRows.append(HistoryRow(message: text, is_agent: false, created_at: now))
@@ -307,7 +311,7 @@ struct ContentView: View {
                                             Task { await convVM.startConversationIfNeeded(agentId: currentAgentId.isEmpty ? elevenLabsAgentId : currentAgentId) }
                                         }
                                     },
-                                onFocusChanged: { focused in
+                                    onFocusChanged: { focused in
                                         chatFieldFocused = focused
                                 },
                                 placeholder: chatPlaceholder()
@@ -334,10 +338,14 @@ struct ContentView: View {
                                 Text(displayedCharacterTitle())
                                     .font(.system(size: 17, weight: .bold))
                                     .foregroundStyle(.white)
+                                    .shadow(color: .black.opacity(0.28), radius: 6, x: 0, y: 0)
+                                    .shadow(color: .black.opacity(0.18), radius: 12, x: 0, y: 0)
                                 if !currentRoomName.isEmpty {
                                     Text(currentRoomName)
                                         .font(.footnote)
-                                        .foregroundStyle(.white.opacity(0.9))
+                                        .foregroundStyle(.white.opacity(0.95))
+                                        .shadow(color: .black.opacity(0.24), radius: 4, x: 0, y: 0)
+                                        .shadow(color: .black.opacity(0.16), radius: 10, x: 0, y: 0)
                                 }
                             }
                             .multilineTextAlignment(.center)
@@ -386,6 +394,7 @@ struct ContentView: View {
                     }
                     .onChange(of: convVM.isConnected) { _, newVal in
                         if newVal { bootingAgent = false }
+                        feedbackVM.handleConnectionChange(newVal)
                     }
                     .sheet(isPresented: $showCostumeSheet) {
                         CostumeSheetView(characterId: currentCharacterId) { costume in
@@ -422,6 +431,8 @@ struct ContentView: View {
                                 .replacingOccurrences(of: "\"", with: "\\\"")
                             requestBackgroundChange(image: room.image, name: room.name)
                             setUserCurrentRoom(roomId: room.id)
+                            currentRoomId = room.id
+                            currentRoomName = room.name
                         }
                         .preferredColorScheme(.dark)
                         .presentationDetents([.fraction(0.35), .large])
@@ -478,6 +489,27 @@ struct ContentView: View {
                     }
                     .padding(20)
                     .background(Color.black.ignoresSafeArea())
+                }
+                // Satisfaction prompt
+                .alert("Are you happy with the app?", isPresented: $feedbackVM.showSatisfactionPrompt) {
+                    Button("Yes") { feedbackVM.requestSystemReviewAndMarkRated() }
+                    Button("No") { feedbackVM.feedbackText = ""; feedbackVM.showFeedbackSheet = true }
+                    Button("Later", role: .cancel) { }
+                } message: {
+                    Text("We'd love your quick feedback.")
+                }
+                .sheet(isPresented: $feedbackVM.showFeedbackSheet) {
+                    FeedbackSheet(vm: feedbackVM, characterId: currentCharacterId)
+                        .preferredColorScheme(.dark)
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillChangeFrameNotification)) { note in
+                    if let frame = note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                        let height = max(0, UIScreen.main.bounds.height - frame.origin.y)
+                        keyboardHeight = height
+                    }
+                }
+                .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
+                    keyboardHeight = 0
                 }
             }
         }
@@ -557,13 +589,22 @@ struct ContentView: View {
         guard let request = makeSupabaseRequest(path: "/rest/v1/characters", queryItems: query) else { return }
         URLSession.shared.dataTask(with: request) { data, _, _ in
             guard let data = data else { return }
-        if let items = try? JSONDecoder().decode([CharacterItem].self, from: data) {
+            if let items = try? JSONDecoder().decode([CharacterItem].self, from: data) {
                 DispatchQueue.main.async {
                     self.allCharacters = items
                     if let idx = items.firstIndex(where: { $0.id == self.currentCharacterId }) {
+                        // Sync selection and state to the persisted/current character
                         self.currentCharacterIndex = idx
-                    } else {
+                        self.currentCharacterName = items[idx].name
+                        self.currentAgentId = items[idx].agent_elevenlabs_id ?? ""
+                        // Ensure model/room reflect saved prefs for this character
+                        self.loadUserCharacterPreference(fallbackModelName: items[idx].name, fallbackModelURL: items[idx].base_model_url)
+                        // Warm up costume thumbnails for the selected character
+                        self.prefetchCostumeThumbnails(for: items[idx].id)
+                    } else if let first = items.first {
+                        // Fallback to first character and fully apply it for consistency
                         self.currentCharacterIndex = 0
+                        self.applyCharacter(first)
                     }
                 self.lastCharacterIndex = self.currentCharacterIndex
                     // Preload avatar images for smooth switching
@@ -616,6 +657,7 @@ struct ContentView: View {
         if showChatHistoryFullScreen || allCharacters.isEmpty {
             EmptyView()
         } else {
+            let inputActive = chatFieldFocused || keyboardHeight > 0
             let count = allCharacters.count
             let current = currentCharacterIndex
             let prev = (current - 1 + count) % count
@@ -684,9 +726,12 @@ struct ContentView: View {
             }
             .padding(.trailing, 14)
             .padding(.bottom, 96)
-            .opacity(isModelLoading ? 0.5 : 1.0)
-            .allowsHitTesting(!isModelLoading)
+            .offset(x: inputActive ? 120 : 0)
+            .opacity(inputActive ? 0 : (isModelLoading ? 0.5 : 1.0))
+            .allowsHitTesting(!isModelLoading && !inputActive)
             .animation(.spring(response: 0.55, dampingFraction: 0.92, blendDuration: 0.25), value: currentCharacterIndex)
+            .animation(.easeInOut(duration: 0.22), value: inputActive)
+            .animation(.easeInOut(duration: 0.22), value: keyboardHeight)
         }
     }
 
@@ -978,6 +1023,46 @@ struct ContentView: View {
             }
         }.resume()
     }
+
+    // MARK: - Rooms ordering and swipe sequencing
+    private func fetchRoomsOrder() {
+        let urlString = "https://n8n8n.top/webhook/rooms"
+        guard let url = URL(string: urlString) else { return }
+        URLSession.shared.dataTask(with: url) { data, _, _ in
+            guard let data = data, var rooms = try? JSONDecoder().decode([RoomItem].self, from: data) else { return }
+            // Sort ascending by created_at to match RoomSheet
+            rooms.sort { ($0.created_at) < ($1.created_at) }
+            DispatchQueue.main.async { self.allRooms = rooms }
+        }.resume()
+    }
+
+    private func advanceRoom(by delta: Int) {
+        guard !allRooms.isEmpty else {
+            // Fallback to web page behavior if we don't have ordering yet
+            if delta > 0 { webViewRef?.evaluateJavaScript("window.nextBackground&&window.nextBackground();") }
+            else { webViewRef?.evaluateJavaScript("window.prevBackground&&window.prevBackground();") }
+            // Keep legacy capture as last resort
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { captureAndSaveCurrentBackgroundAndRoom() }
+            return
+        }
+        // Determine current index from id or persisted background image
+        let currentIndex: Int = {
+            if let rid = currentRoomId, let idx = allRooms.firstIndex(where: { $0.id == rid }) { return idx }
+            let bg = UserDefaults.standard.string(forKey: PersistKeys.backgroundURL) ?? ""
+            if !bg.isEmpty, let idx = allRooms.firstIndex(where: { $0.image == bg }) { return idx }
+            return 0
+        }()
+        let count = allRooms.count
+        var newIndex = (currentIndex + delta) % count
+        if newIndex < 0 { newIndex += count }
+        let room = allRooms[newIndex]
+        currentRoomId = room.id
+        currentRoomName = room.name
+        requestBackgroundChange(image: room.image, name: room.name)
+        setUserCurrentRoom(roomId: room.id)
+    }
+
+    // Feedback submission moved to FeedbackViewModel
 
     // MARK: - Full-screen Chat History Helpers
     private struct HistoryRow: Decodable, Identifiable {
