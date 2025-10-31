@@ -19,12 +19,12 @@ struct ChatMessageBubble: View {
     let onPlayPause: () -> Void
     
     private var backgroundColor: Color {
-        // Agent messages: soft pink; User messages: translucent black
-        message.isAgent ? Color.pink.opacity(0.18) : Color.black.opacity(0.55)
+        // Agent messages: stronger pink; User messages: translucent black
+        message.isAgent ? Color.pink.opacity(0.30) : Color.black.opacity(0.55)
     }
     
     private var strokeColor: Color {
-        message.isAgent ? Color.pink.opacity(0.28) : Color.white.opacity(0.15)
+        message.isAgent ? Color.pink.opacity(0.40) : Color.white.opacity(0.15)
     }
     
     private var maxWidth: CGFloat {
@@ -108,6 +108,7 @@ struct ChatMessagesOverlay: View {
     let messages: [ChatMessage]
     let showChatList: Bool
     let onSwipeToHide: () -> Void
+    var onTap: (() -> Void)? = nil
     let calculateOpacity: (Int) -> Double
     let bottomInset: CGFloat
     let isInputFocused: Bool
@@ -126,6 +127,7 @@ struct ChatMessagesOverlay: View {
             }
         }
         .padding(.bottom, 0)
+        // Remove broad tap capture to avoid interfering with other controls
     }
     
     private func chatScrollContent(geometry: GeometryProxy) -> some View {
@@ -169,7 +171,7 @@ struct ChatMessagesOverlay: View {
         .id(message.id)
         .transition(.asymmetric(insertion: .move(edge: .bottom).combined(with: .opacity), removal: .opacity))
         .opacity(calculateOpacity(index))
-        .allowsHitTesting(false)
+        .onTapGesture { onTap?() }
     }
 }
 
@@ -238,6 +240,55 @@ struct QuickMessageChips: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.leading, 28)
+    }
+}
+
+// MARK: - Reusable Chat Input Bar
+struct ChatInputBar: View {
+    @Binding var text: String
+    var isConnected: Bool
+    var isBooting: Bool
+    var onSend: (String) -> Void
+    var onToggleMic: () -> Void
+    @FocusState private var isFocused: Bool
+
+    var body: some View {
+        HStack(spacing: 10) {
+            TextField("", text: $text, prompt: Text("Ask Anything").foregroundStyle(.white))
+                .textFieldStyle(.plain)
+                .textInputAutocapitalization(.sentences)
+                .disableAutocorrection(false)
+                .background(Color.clear)
+                .frame(maxWidth: .infinity)
+                .focused($isFocused)
+
+            if isFocused || !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                Button(action: {
+                    let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+                    guard !trimmed.isEmpty else { return }
+                    onSend(trimmed)
+                    text = ""
+                }) {
+                    Image(systemName: "paperplane.fill")
+                }
+                .transition(.opacity.combined(with: .scale))
+            } else {
+                Button(action: { onToggleMic() }) {
+                    if isBooting {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .padding(.trailing, -6)
+                    } else if isConnected {
+                        Image(systemName: "stop.fill")
+                    } else {
+                        Image(systemName: "mic.fill")
+                    }
+                }
+                .transition(.opacity.combined(with: .scale))
+            }
+        }
+        .padding(.vertical, 4)
+        .padding(.horizontal, 16)
     }
 }
 

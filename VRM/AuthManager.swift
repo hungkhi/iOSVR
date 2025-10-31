@@ -101,7 +101,8 @@ class AuthManager: NSObject, ObservableObject {
     func continueAsGuest() {
         // Enable guest mode to bypass sign-in for simulator testing
         errorMessage = nil
-        isGuest = true
+        _ = ensureClientId() // guarantee a stable client id for guest flows
+        DispatchQueue.main.async { self.isGuest = true }
     }
 }
 

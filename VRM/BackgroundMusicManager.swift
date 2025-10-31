@@ -30,9 +30,11 @@ final class BackgroundMusicManager {
         guard let player else { return }
         #if canImport(UIKit)
         let session = AVAudioSession.sharedInstance()
-        try? session.setCategory(.ambient, options: [.mixWithOthers])
+        // Use playback so audio is audible even with the silent switch, but still mix when needed
+        try? session.setCategory(.playback, options: [.mixWithOthers])
         try? session.setActive(true, options: [])
         #endif
+        player.volume = 1.0
         player.play()
     }
 

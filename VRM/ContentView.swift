@@ -47,10 +47,13 @@ struct ContentView: View {
     @State private var isModelLoading: Bool = false
     @State private var pendingBackgroundImage: String? = nil
     @State private var pendingRoomNameQueued: String? = nil
+    @State private var navigateToChatHistory: Bool = false
     // Age gate
     @AppStorage("ageVerified18") private var ageVerified18: Bool = false
     @State private var showAgeConfirm: Bool = false
     @State private var showAgeBlocked: Bool = false
+    @State private var showTermsSheet: Bool = false
+    @State private var showPrivacySheet: Bool = false
     // Settings toggles
     @AppStorage("settings.hapticsEnabled") private var hapticsEnabled: Bool = true
     @AppStorage("settings.autoPlayMusic") private var autoPlayMusic: Bool = false
@@ -61,60 +64,7 @@ struct ContentView: View {
     var body: some View {
         NavigationStack {
             if authManager.session == nil && !authManager.isGuest {
-                // Show sign-in page
-                VStack(spacing: 24) {
-                    Spacer()
-                    Text("Welcome to VRM!")
-                        .font(.largeTitle.bold())
-                        .foregroundColor(.white)
-                    Text("Please sign in to continue.")
-                        .foregroundColor(.gray)
-                        .padding(.bottom, 32)
-                    if let errorMsg = authManager.errorMessage {
-                        Text(errorMsg)
-                            .foregroundColor(.red)
-                    }
-                    Button {
-                        if ageVerified18 { authManager.signInWithApple() } else { showAgeConfirm = true }
-                    } label: {
-                        HStack {
-                            Image(systemName: "applelogo")
-                            Text("Sign in with Apple")
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .foregroundColor(.white)
-                        .background(Color.black.opacity(0.92))
-                        .cornerRadius(12)
-                    }
-                    .disabled(authManager.isLoading || !ageVerified18)
-                    Button {
-                        if ageVerified18 { authManager.continueAsGuest() } else { showAgeConfirm = true }
-                    } label: {
-                        HStack {
-                            Image(systemName: "person.fill.questionmark")
-                            Text("Use as Guest")
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .foregroundColor(.white)
-                        .background(Color.gray.opacity(0.4))
-                        .cornerRadius(12)
-                    }
-                    .disabled(authManager.isLoading || !ageVerified18)
-                    Spacer()
-                }
-                .background(Color.black.ignoresSafeArea())
-                .onAppear { 
-                    onModelReady()
-                    if !ageVerified18 { showAgeConfirm = true }
-                }
-                .alert("Are you 18 or older?", isPresented: $showAgeConfirm) {
-                    Button("I'm under 18", role: .destructive) { showAgeBlocked = true }
-                    Button("Yes, I am 18+", role: .cancel) { ageVerified18 = true }
-                } message: {
-                    Text("You must confirm you are 18+ to use this app.")
-                }
+                OnboardingView(onModelReady: onModelReady)
                 .alert("Sorry, you must be 18+ to use this app.", isPresented: $showAgeBlocked) {
                     Button("OK", role: .cancel) { }
                 }
@@ -183,18 +133,15 @@ struct ContentView: View {
                             let rn = UserDefaults.standard.string(forKey: PersistKeys.roomName) ?? ""
                             if !rn.isEmpty { currentRoomName = rn }
                         }
-                        // Apply persisted background if present and not already applied by injection
-                        if let bg = UserDefaults.standard.string(forKey: PersistKeys.backgroundURL), !bg.isEmpty {
-                            let escaped = bg.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-                            let js = "(function(){try{if(!window.__bgApplied){document.body.style.backgroundImage=\"url('\\(escaped)')\";window.__bgApplied=true;}}catch(e){}})();"
-                            webViewRef?.evaluateJavaScript(js)
-                        }
+                        // Apply or re-apply persisted background to avoid white flashes
+                        ensureBackgroundApplied()
                         // Auto-start conversation if enabled
                         if autoEnterTalking && !convVM.isConnected {
                             bootingAgent = true
                             Task { await convVM.startConversationIfNeeded(agentId: currentAgentId.isEmpty ? elevenLabsAgentId : currentAgentId) }
                         }
                         // Agent will be started manually via mic button otherwise
+                        if chatMessages.isEmpty { loadLatestConversation() }
                     }
                     // Show name prompt if needed when user becomes available
                     .onChange(of: authManager.user) { _, newUser in
@@ -221,6 +168,8 @@ struct ContentView: View {
                         case .active:
                             // Resume parallax
                             parallaxController?.start()
+                            // Re-ensure background is applied when returning from other pages
+                            ensureBackgroundApplied()
                         case .inactive, .background:
                             // Pause background music in the web view when app not active
                             BackgroundMusicManager.shared.pause()
@@ -246,6 +195,10 @@ struct ContentView: View {
                             } label: { EmptyView() }
                             .hidden()
 
+                            // Hidden navigation link to Chat History
+                            NavigationLink(destination: ChatHistoryView(characterId: currentCharacterId, agentId: (currentAgentId.isEmpty ? elevenLabsAgentId : currentAgentId), convVM: convVM), isActive: $navigateToChatHistory) { EmptyView() }
+                                .hidden()
+
                             // Placeholder link removed with tab removal
                         }
                     )
@@ -267,13 +220,14 @@ struct ContentView: View {
                         SaveToastView(isVisible: showSavedToast)
                     }
                     .overlay(alignment: .bottom) {
-                        VStack(spacing: 8) {
+                        VStack(spacing: 6) {
                             ChatMessagesOverlay(
                                 messages: chatMessages,
                                 showChatList: showChatList,
                                 onSwipeToHide: {
                                     withAnimation(.easeInOut(duration: 0.25)) { showChatList = false }
                                 },
+                                onTap: { withAnimation(.easeInOut(duration: 0.25)) { navigateToChatHistory = true } },
                                 calculateOpacity: calculateOpacity,
                                 bottomInset: 0,
                                 isInputFocused: chatFieldFocused
@@ -744,14 +698,54 @@ struct ContentView: View {
     private func applyPendingBackgroundIfAny() {
         guard let image = pendingBackgroundImage else { return }
         let escaped = image.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
-        let js = "document.body.style.backgroundImage = `url('" + escaped + "')`;"
-        webViewRef?.evaluateJavaScript(js)
+        // Retry image load in JS to avoid white flashes when network hiccups
+        let script = """
+        (function(){
+          try{
+            var url = "\(escaped)";
+            var attempts = 0; var maxAttempts = 3;
+            document.body.style.backgroundColor = '#000';
+            function tryLoad(){
+              attempts++;
+              var img = new Image();
+              img.crossOrigin = 'anonymous';
+              img.onload = function(){
+                document.body.style.backgroundImage = "url('"+url+"')";
+                document.body.style.backgroundColor = '';
+              };
+              img.onerror = function(){ if (attempts < maxAttempts){ setTimeout(tryLoad, 450); } };
+              img.src = url + (url.indexOf('?')>-1?'&':'?') + 't=' + Date.now();
+            }
+            tryLoad();
+          }catch(e){}
+        })();
+        """
+        webViewRef?.evaluateJavaScript(script)
         // Re-mute BGM after DOM style change in case page-side code toggles it
         muteBgmIfNeeded()
         if let rn = pendingRoomNameQueued { currentRoomName = rn }
         persistRoom(name: pendingRoomNameQueued ?? "", url: image)
         pendingBackgroundImage = nil
         pendingRoomNameQueued = nil
+    }
+
+    private func ensureBackgroundApplied() {
+        let bg = UserDefaults.standard.string(forKey: PersistKeys.backgroundURL) ?? ""
+        guard !bg.isEmpty else { return }
+        let escaped = bg.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+        let js = """
+        (function(){try{
+          var cs = getComputedStyle(document.body).backgroundImage||'';
+          if(!cs || cs==='none'){
+            document.body.style.backgroundColor = '#000';
+            var img=new Image();
+            img.onload=function(){document.body.style.backgroundImage="url('"+"\(escaped)"+"')";document.body.style.backgroundColor='';};
+            img.onerror=function(){};
+            img.src="\(escaped)";
+          }
+        }catch(e){}})();
+        """
+        webViewRef?.evaluateJavaScript(js)
     }
 
     private func loadModelByURLWithSync(url: String, name: String) {
@@ -887,6 +881,47 @@ struct ContentView: View {
     private func muteBgmIfNeeded() {
         guard !autoPlayMusic else { return }
         webViewRef?.evaluateJavaScript("(function(){try{return window.setBgm&&window.setBgm(false);}catch(e){return false}})();")
+    }
+}
+
+// Minimal legal markdown strings (reuse of Settings content)
+private let LegalTextTerms = """
+# Terms of Use
+_Last updated: October 30, 2025_
+
+Use of this app is subject to our terms. You must be 13+ (or local equivalent) and agree not to misuse the app or infringe others’ rights. We may update features and terms; continued use means you accept the changes. The app is provided “as is.” To the maximum extent allowed by law we disclaim warranties and limit liability. See Settings → Terms of Use for the full text.
+"""
+
+private let LegalTextPrivacy = """
+# Privacy Policy
+_Last updated: October 30, 2025_
+
+We collect minimal data to run the app (account identifiers if you sign in, on‑device preferences, and diagnostics). We don’t sell data. See Settings → Privacy Policy for details on collection, use, sharing, and choices.
+"""
+
+private struct LegalSheetView: View {
+    let title: String
+    let text: String
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if let attr = try? AttributedString(markdown: text) {
+                        Text(attr).foregroundStyle(.white).lineSpacing(6)
+                    } else {
+                        Text(text).foregroundStyle(.white).lineSpacing(6)
+                    }
+                }
+                .padding(18)
+            }
+            .background(Color.black.ignoresSafeArea())
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+        }
+        .preferredColorScheme(.dark)
+        .presentationDetents([.large])
+        .presentationBackground(.black)
+        .presentationDragIndicator(.hidden)
     }
 }
 
