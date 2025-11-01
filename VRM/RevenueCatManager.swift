@@ -1,8 +1,9 @@
 import Foundation
 import Combine
 import RevenueCat
+import Auth
 
-class RevenueCatManager: ObservableObject {
+class RevenueCatManager: NSObject, ObservableObject {
     static let shared = RevenueCatManager()
     
     @Published var offerings: Offerings?
@@ -12,7 +13,8 @@ class RevenueCatManager: ObservableObject {
     
     private var cancellables = Set<AnyCancellable>()
     
-    private init() {
+    private override init() {
+        super.init()
         configureRevenueCat()
     }
     
@@ -69,14 +71,34 @@ class RevenueCatManager: ObservableObject {
                 self.isLoading = false
                 
                 if let error = error {
-                    self.errorMessage = error.localizedDescription
-                    print("RevenueCat: Error fetching offerings: \(error.localizedDescription)")
+                    var detailedError = error.localizedDescription
+                    if let underlyingError = (error as NSError).userInfo[NSUnderlyingErrorKey] as? NSError {
+                        detailedError += "\nUnderlying error: \(underlyingError.localizedDescription)"
+                    }
+                    self.errorMessage = detailedError
+                    print("RevenueCat: Error fetching offerings: \(detailedError)")
+                    print("RevenueCat: Full error: \(error)")
                 } else if let offerings = offerings {
                     self.offerings = offerings
                     print("RevenueCat: Loaded \(offerings.all.count) offerings")
                     
+                    // Check if current offering exists and has packages
+                    if let current = offerings.current {
+                        print("RevenueCat: Current offering ID: \(current.identifier)")
+                        print("RevenueCat: Current offering has \(current.availablePackages.count) packages")
+                        for package in current.availablePackages {
+                            print("RevenueCat: Package - ID: \(package.identifier), Product ID: \(package.storeProduct.productIdentifier)")
+                        }
+                    } else {
+                        print("RevenueCat: Warning - No current offering found")
+                        self.errorMessage = "No current offering configured. Please check your RevenueCat dashboard."
+                    }
+                    
                     // Also refresh customer info
                     self.refreshCustomerInfo()
+                } else {
+                    self.errorMessage = "No offerings available. Please configure products in your RevenueCat dashboard."
+                    print("RevenueCat: No offerings returned")
                 }
             }
         }

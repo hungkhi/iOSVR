@@ -71,7 +71,7 @@ struct SubscriptionView: View {
                             ProgressView()
                                 .tint(.white)
                                 .padding(.vertical, 40)
-                        } else if let offerings = revenueCatManager.offerings, let currentOffering = offerings.current {
+                        } else if let offerings = revenueCatManager.offerings, let currentOffering = offerings.current, !currentOffering.availablePackages.isEmpty {
                             VStack(spacing: 16) {
                                 ForEach(currentOffering.availablePackages, id: \.identifier) { package in
                                     if let plan = SubscriptionPlan.fromRevenueCatPackage(package) {
@@ -88,11 +88,45 @@ struct SubscriptionView: View {
                             }
                             .padding(.horizontal, 20)
                         } else if let errorMessage = revenueCatManager.errorMessage {
-                            Text("Failed to load subscriptions: \(errorMessage)")
-                                .font(.system(size: 14))
-                                .foregroundStyle(.red)
-                                .padding(.horizontal, 20)
-                                .padding(.vertical, 20)
+                            VStack(spacing: 12) {
+                                Text("Failed to load subscriptions")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(.red)
+                                
+                                Text(errorMessage)
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.red.opacity(0.9))
+                                    .multilineTextAlignment(.center)
+                                
+                                Text("Troubleshooting:")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.white)
+                                    .padding(.top, 8)
+                                
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text("1. Ensure StoreKit Configuration is set in Scheme → Run → Options")
+                                    Text("2. Verify products exist in RevenueCat dashboard")
+                                    Text("3. Check that products match StoreKit file IDs")
+                                    Text("4. Ensure a current Offering is configured in RevenueCat")
+                                }
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white.opacity(0.7))
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 20)
+                        } else if let offerings = revenueCatManager.offerings, let current = offerings.current, current.availablePackages.isEmpty {
+                            VStack(spacing: 12) {
+                                Text("No subscription packages available")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundStyle(.orange)
+                                
+                                Text("The current offering exists but has no packages. Please add products to your Offering in the RevenueCat dashboard.")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(.white.opacity(0.8))
+                                    .multilineTextAlignment(.center)
+                            }
+                            .padding(.horizontal, 20)
+                            .padding(.vertical, 20)
                         } else {
                             // Fallback to default plans if RevenueCat is not configured
                             VStack(spacing: 16) {
@@ -287,14 +321,13 @@ struct SubscriptionPlan: Identifiable {
             ]
         }
         
-        // Get localized price
-        let price = storeProduct.localizedPrice
-        
-        // Format price string
+        // Get localized price string
+        // Format price manually using price (Decimal) and currencyCode
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
-        formatter.locale = storeProduct.priceLocale
-        let priceString = formatter.string(from: price as NSNumber) ?? "$0.00"
+        formatter.currencyCode = storeProduct.currencyCode
+        formatter.locale = Locale.current
+        let priceString = formatter.string(from: storeProduct.price as NSDecimalNumber) ?? "$0.00"
         
         // Determine period suffix
         var finalPriceString = priceString

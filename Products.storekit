@@ -1,0 +1,147 @@
+{
+  "identifier" : "Products",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : ".networkError"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : ".invalidSignature"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : ".storeProductNotAvailable"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : ".cloudServiceNetworkConnectionFailed"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : ".unknown"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : ".paymentCancelled"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : ".cloudServiceRevoked"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : ".privacyAcknowledgementRequired"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : ".unauthorizedRequestData"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : ".invalidOfferIdentifier"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : ".invalidSignature"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : ".missingOfferParams"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : ".invalidOfferPrice"
+      }
+    ],
+    "_loadAllProducts" : true,
+    "_locale" : "en_US"
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21482624",
+      "localizations" : [
+
+      ],
+      "name" : "Premium Subscriptions",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "9.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6739506543",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Access to Pro characters, backgrounds, costumes, and unlimited conversations.",
+              "displayName" : "Pro",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "pro_monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Pro Monthly",
+          "subscriptionGroupID" : "21482624",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "19.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "6739506544",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Everything in Pro, plus access to Unlimited tier content, priority support, and early access to new features.",
+              "displayName" : "Unlimited",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "unlimited_monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Unlimited Monthly",
+          "subscriptionGroupID" : "21482624",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}
+

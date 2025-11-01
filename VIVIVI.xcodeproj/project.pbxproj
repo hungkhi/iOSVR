@@ -18,6 +18,7 @@
 		677D9AD42EB551590046907F /* OneSignalExtension in Frameworks */ = {isa = PBXBuildFile; productRef = 677D9AD32EB551590046907F /* OneSignalExtension */; };
 		677D9AD62EB551590046907F /* OneSignalFramework in Frameworks */ = {isa = PBXBuildFile; productRef = 677D9AD52EB551590046907F /* OneSignalFramework */; };
 		677D9AD82EB551590046907F /* OneSignalInAppMessages in Frameworks */ = {isa = PBXBuildFile; productRef = 677D9AD72EB551590046907F /* OneSignalInAppMessages */; };
+		67B2A73A2EB674F0004BFFC5 /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 67B2A7392EB674F0004BFFC5 /* RevenueCat */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -102,6 +103,7 @@
 				677D9A662EB3BE750046907F /* Supabase in Frameworks */,
 				677D9A372EB3BD620046907F /* Storage in Frameworks */,
 				677D9AD82EB551590046907F /* OneSignalInAppMessages in Frameworks */,
+				67B2A73A2EB674F0004BFFC5 /* RevenueCat in Frameworks */,
 				677D9A332EB3BD620046907F /* PostgREST in Frameworks */,
 				677D9A312EB3BD620046907F /* Functions in Frameworks */,
 				677D9A2F2EB3BD620046907F /* Auth in Frameworks */,
@@ -194,6 +196,7 @@
 				677D9A652EB3BE750046907F /* Supabase */,
 				677D9AD52EB551590046907F /* OneSignalFramework */,
 				677D9AD72EB551590046907F /* OneSignalInAppMessages */,
+				67B2A7392EB674F0004BFFC5 /* RevenueCat */,
 			);
 			productName = VRM;
 			productReference = 67C3FD2B2EAFB43C00F1A22B /* VIVIVI.app */;
@@ -230,6 +233,7 @@
 				6760A9962EB23AA1006C75DB /* XCRemoteSwiftPackageReference "elevenlabs-swift-sdk" */,
 				677D99FF2EB3BABB0046907F /* XCRemoteSwiftPackageReference "supabase-swift" */,
 				677D9A922EB5505C0046907F /* XCRemoteSwiftPackageReference "OneSignal-iOS-SDK" */,
+				67B2A7362EB674F0004BFFC5 /* XCRemoteSwiftPackageReference "purchases-ios" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 67C3FD2C2EAFB43C00F1A22B /* Products */;
@@ -616,6 +620,14 @@
 				minimumVersion = 5.2.15;
 			};
 		};
+		67B2A7362EB674F0004BFFC5 /* XCRemoteSwiftPackageReference "purchases-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.46.0;
+			};
+		};
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
@@ -668,6 +680,11 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 677D9A922EB5505C0046907F /* XCRemoteSwiftPackageReference "OneSignal-iOS-SDK" */;
 			productName = OneSignalInAppMessages;
+		};
+		67B2A7392EB674F0004BFFC5 /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 67B2A7362EB674F0004BFFC5 /* XCRemoteSwiftPackageReference "purchases-ios" */;
+			productName = RevenueCat;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
