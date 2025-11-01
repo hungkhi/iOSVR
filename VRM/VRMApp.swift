@@ -16,6 +16,9 @@ struct VRMApp: App {
     init() {
         // Initialize OneSignal push notifications
         OneSignalManager.shared.initialize()
+        
+        // Initialize RevenueCat
+        RevenueCatManager.shared.configureRevenueCat()
     }
     
     var body: some Scene {

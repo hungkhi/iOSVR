@@ -1,6 +1,7 @@
 import SwiftUI
 import StoreKit
 import Combine
+import RevenueCat
 
 struct SubscriptionView: View {
     @Environment(\.dismiss) private var dismiss
@@ -25,6 +26,7 @@ struct SubscriptionView: View {
     }
     
     @StateObject private var subscriptionManager = SubscriptionManager.shared
+    @StateObject private var revenueCatManager = RevenueCatManager.shared
     @State private var isLoading = false
     @State private var errorMessage: String?
     
@@ -65,18 +67,47 @@ struct SubscriptionView: View {
                             )
                         
                         // Subscription Plans
-                        VStack(spacing: 16) {
-                            ForEach(SubscriptionPlan.allPlans, id: \.id) { plan in
-                                SubscriptionPlanCard(
-                                    plan: plan,
-                                    isSelected: subscriptionManager.selectedPlan?.id == plan.id,
-                                    isRecommended: plan.isRecommended
-                                ) {
-                                    subscriptionManager.selectedPlan = plan
+                        if revenueCatManager.isLoading {
+                            ProgressView()
+                                .tint(.white)
+                                .padding(.vertical, 40)
+                        } else if let offerings = revenueCatManager.offerings, let currentOffering = offerings.current {
+                            VStack(spacing: 16) {
+                                ForEach(currentOffering.availablePackages, id: \.identifier) { package in
+                                    if let plan = SubscriptionPlan.fromRevenueCatPackage(package) {
+                                        SubscriptionPlanCard(
+                                            plan: plan,
+                                            isSelected: subscriptionManager.selectedPackage?.identifier == package.identifier,
+                                            isRecommended: false
+                                        ) {
+                                            subscriptionManager.selectedPackage = package
+                                            subscriptionManager.selectedPlan = plan
+                                        }
+                                    }
                                 }
                             }
+                            .padding(.horizontal, 20)
+                        } else if let errorMessage = revenueCatManager.errorMessage {
+                            Text("Failed to load subscriptions: \(errorMessage)")
+                                .font(.system(size: 14))
+                                .foregroundStyle(.red)
+                                .padding(.horizontal, 20)
+                                .padding(.vertical, 20)
+                        } else {
+                            // Fallback to default plans if RevenueCat is not configured
+                            VStack(spacing: 16) {
+                                ForEach(SubscriptionPlan.defaultPlans, id: \.id) { plan in
+                                    SubscriptionPlanCard(
+                                        plan: plan,
+                                        isSelected: subscriptionManager.selectedPlan?.id == plan.id,
+                                        isRecommended: plan.isRecommended
+                                    ) {
+                                        subscriptionManager.selectedPlan = plan
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 20)
                         }
-                        .padding(.horizontal, 20)
                         
                         // Subscribe Button
                         Button(action: {
@@ -87,9 +118,15 @@ struct SubscriptionView: View {
                                     ProgressView()
                                         .tint(.white)
                                 } else {
-                                    Text(subscriptionManager.selectedPlan != nil ? "Subscribe to \(subscriptionManager.selectedPlan!.displayName)" : "Select a Plan")
-                                        .font(.system(size: 18, weight: .semibold))
-                                        .foregroundStyle(.white)
+                                    if let plan = subscriptionManager.selectedPlan {
+                                        Text("Subscribe to \(plan.displayName)")
+                                            .font(.system(size: 18, weight: .semibold))
+                                            .foregroundStyle(.white)
+                                    } else {
+                                        Text("Select a Plan")
+                                            .font(.system(size: 18, weight: .semibold))
+                                            .foregroundStyle(.white)
+                                    }
                                 }
                             }
                             .frame(maxWidth: .infinity)
@@ -99,7 +136,17 @@ struct SubscriptionView: View {
                                     .fill(subscriptionManager.selectedPlan != nil ? Color.blue : Color.gray.opacity(0.3))
                             )
                         }
-                        .disabled(isLoading || subscriptionManager.selectedPlan == nil)
+                        .disabled(isLoading || subscriptionManager.selectedPlan == nil || revenueCatManager.isLoading)
+                        .padding(.horizontal, 20)
+                        
+                        // Restore Purchases Button
+                        Button(action: {
+                            restorePurchases()
+                        }) {
+                            Text("Restore Purchases")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundStyle(.white.opacity(0.7))
+                        }
                         .padding(.horizontal, 20)
                         
                         if let errorMessage = errorMessage {
@@ -131,21 +178,62 @@ struct SubscriptionView: View {
             }
             .preferredColorScheme(.dark)
         }
+        .onAppear {
+            // Load offerings when view appears
+            if revenueCatManager.offerings == nil {
+                revenueCatManager.loadOfferings()
+            }
+        }
     }
     
     private func purchaseSubscription() {
         guard let plan = subscriptionManager.selectedPlan else { return }
+        
+        // Use RevenueCat package if available, otherwise fallback
+        if let package = subscriptionManager.selectedPackage {
+            isLoading = true
+            errorMessage = nil
+            
+            revenueCatManager.purchase(package: package) { success, error in
+                DispatchQueue.main.async {
+                    self.isLoading = false
+                    
+                    if success {
+                        self.dismiss()
+                    } else if let error = error {
+                        self.errorMessage = error.localizedDescription
+                    }
+                }
+            }
+        } else {
+            // Fallback: simulate purchase (should not happen if RevenueCat is properly configured)
+            isLoading = true
+            errorMessage = nil
+            
+            Task {
+                try? await Task.sleep(nanoseconds: 1_500_000_000)
+                await MainActor.run {
+                    subscriptionManager.updateTier(plan.tier)
+                    isLoading = false
+                    dismiss()
+                }
+            }
+        }
+    }
+    
+    private func restorePurchases() {
         isLoading = true
         errorMessage = nil
         
-        // TODO: Implement StoreKit 2 purchase logic
-        // For now, simulate a purchase
-        Task {
-            try? await Task.sleep(nanoseconds: 1_500_000_000)
-            await MainActor.run {
-                subscriptionManager.updateTier(plan.tier)
-                isLoading = false
-                dismiss()
+        revenueCatManager.restorePurchases { success, error in
+            DispatchQueue.main.async {
+                self.isLoading = false
+                
+                if success {
+                    self.dismiss()
+                } else if let error = error {
+                    self.errorMessage = error.localizedDescription
+                }
             }
         }
     }
@@ -160,7 +248,80 @@ struct SubscriptionPlan: Identifiable {
     let features: [String]
     let isRecommended: Bool
     
-    static let allPlans: [SubscriptionPlan] = [
+    static func fromRevenueCatPackage(_ package: RevenueCat.Package) -> SubscriptionPlan? {
+        let storeProduct = package.storeProduct
+        let productId = package.identifier
+        
+        // Determine tier from product identifier
+        let tier: SubscriptionTier
+        let displayName: String
+        let features: [String]
+        
+        if productId.contains("unlimited") || productId.contains("Unlimited") {
+            tier = .unlimited
+            displayName = "Unlimited"
+            features = [
+                "Everything in Pro",
+                "Access to Unlimited tier content",
+                "Priority support",
+                "Early access to new features"
+            ]
+        } else if productId.contains("pro") || productId.contains("Pro") {
+            tier = .pro
+            displayName = "Pro"
+            features = [
+                "Access to Pro characters",
+                "Access to Pro backgrounds",
+                "Access to Pro costumes",
+                "Unlimited conversations"
+            ]
+        } else {
+            // Default to pro if unclear
+            tier = .pro
+            displayName = "Pro"
+            features = [
+                "Access to Pro characters",
+                "Access to Pro backgrounds",
+                "Access to Pro costumes",
+                "Unlimited conversations"
+            ]
+        }
+        
+        // Get localized price
+        let price = storeProduct.localizedPrice
+        
+        // Format price string
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.locale = storeProduct.priceLocale
+        let priceString = formatter.string(from: price as NSNumber) ?? "$0.00"
+        
+        // Determine period suffix
+        var finalPriceString = priceString
+        if let period = storeProduct.subscriptionPeriod {
+            switch period.unit {
+            case .month:
+                finalPriceString = "\(priceString)/month"
+            case .year:
+                finalPriceString = "\(priceString)/year"
+            case .week:
+                finalPriceString = "\(priceString)/week"
+            default:
+                finalPriceString = priceString
+            }
+        }
+        
+        return SubscriptionPlan(
+            id: productId,
+            displayName: displayName,
+            tier: tier,
+            price: finalPriceString,
+            features: features,
+            isRecommended: false
+        )
+    }
+    
+    static let defaultPlans: [SubscriptionPlan] = [
         SubscriptionPlan(
             id: "pro_monthly",
             displayName: "Pro",
@@ -264,6 +425,7 @@ class SubscriptionManager: ObservableObject {
     
     @Published var currentTier: SubscriptionTier = .free
     @Published var selectedPlan: SubscriptionPlan?
+    @Published var selectedPackage: RevenueCat.Package?
     
     private init() {
         // Load subscription tier from UserDefaults
@@ -271,6 +433,9 @@ class SubscriptionManager: ObservableObject {
            let tier = SubscriptionTier(rawValue: savedTier) {
             currentTier = tier
         }
+        
+        // Refresh from RevenueCat on init
+        RevenueCatManager.shared.refreshCustomerInfo()
     }
     
     func updateTier(_ tier: SubscriptionTier) {
