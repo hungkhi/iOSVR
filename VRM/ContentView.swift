@@ -83,9 +83,12 @@ struct ContentView: View {
     @State private var pendingDisplayName: String = ""
     // Notification navigation
     @State private var pendingCharacterIdFromNotification: String? = nil
+    // Chat media lightbox
+    @State private var chatMediaLightboxURL: String? = nil
+    @State private var chatMediaLightboxThumbnail: String? = nil
     var body: some View {
         NavigationStack {
-            if authManager.session == nil && !authManager.isGuest {
+            if !ageVerified18 || (authManager.session == nil && !authManager.isGuest) {
                 OnboardingView(onModelReady: onModelReady)
                 .alert("Sorry, you must be 18+ to use this app.", isPresented: $showAgeBlocked) {
                     Button("OK", role: .cancel) { }
@@ -126,6 +129,12 @@ struct ContentView: View {
                             BackgroundMusicManager.shared.pause()
                             DispatchQueue.main.async { self.isBgmOn = false }
                         }
+                        // Check for pending notification from app launch
+                        if let pendingCharacterId = OneSignalManager.getPendingNotificationCharacterId() {
+                            pendingCharacterIdFromNotification = pendingCharacterId
+                            print("ContentView: Found pending notification character ID: \(pendingCharacterId)")
+                        }
+                        
                         // Prefetch character thumbnails for faster grid loading
                         prefetchCharacterThumbnails()
                         // Fetch characters list for swipe up/down navigation
@@ -272,6 +281,11 @@ struct ContentView: View {
                                     triggerHaptic(.light)
                                     withAnimation(.easeInOut(duration: 0.25)) { showChatHistoryFullScreen = true }
                                     fetchConversationHistory(reset: true)
+                                },
+                                onMediaTap: { url, thumbnail in
+                                    triggerHaptic(.light)
+                                    chatMediaLightboxURL = url
+                                    chatMediaLightboxThumbnail = thumbnail
                                 },
                                 calculateOpacity: calculateOpacity,
                                 bottomInset: 0,
@@ -449,6 +463,22 @@ struct ContentView: View {
                     .sheet(isPresented: $showSettingsSheet) {
                         SettingsView(authManager: authManager)
                                 .preferredColorScheme(.dark)
+                    }
+                    .fullScreenCover(isPresented: Binding(
+                        get: { chatMediaLightboxURL != nil },
+                        set: { if !$0 { chatMediaLightboxURL = nil; chatMediaLightboxThumbnail = nil } }
+                    )) {
+                        if let url = chatMediaLightboxURL {
+                            ChatMediaLightbox(
+                                mediaURL: url,
+                                thumbnail: chatMediaLightboxThumbnail,
+                                onClose: {
+                                    chatMediaLightboxURL = nil
+                                    chatMediaLightboxThumbnail = nil
+                                }
+                            )
+                            .preferredColorScheme(.dark)
+                        }
                     }
                     // Full-screen chat history overlay content
                     if showChatHistoryFullScreen {
@@ -1010,6 +1040,33 @@ struct ContentView: View {
         let is_agent: Bool
         let created_at: String
     }
+    
+    // Helper to parse message string to ChatMessage
+    // Format for media: "MEDIA:url:thumbnail" or "MEDIA:url" (if no thumbnail)
+    // Note: URLs can contain colons (e.g., https://), so we split on the last ":" that precedes another URL
+    private func parseMessageToChatMessage(_ message: String, isAgent: Bool) -> ChatMessage {
+        if message.hasPrefix("MEDIA:") {
+            let content = String(message.dropFirst(6)) // Drop "MEDIA:"
+            
+            // Find the last colon that separates URL from thumbnail
+            // The thumbnail (if present) will be a second URL starting with http:// or https://
+            if let lastColonIndex = content.lastIndex(of: ":") {
+                let afterColon = String(content[content.index(after: lastColonIndex)...])
+                
+                // If the part after the last colon looks like a URL (starts with http:// or https://),
+                // then the last colon is the separator between URL and thumbnail
+                if afterColon.hasPrefix("http://") || afterColon.hasPrefix("https://") {
+                    let url = String(content[..<lastColonIndex])
+                    return ChatMessage(kind: .media(url: url, thumbnail: nil), isAgent: isAgent)
+                }
+            }
+            
+            // No thumbnail separator found, or it's part of the URL
+            return ChatMessage(kind: .media(url: content, thumbnail: nil), isAgent: isAgent)
+        } else {
+            return ChatMessage(kind: .text(message), isAgent: isAgent)
+        }
+    }
 
     private func loadLatestConversation(limit: Int = 5) {
         guard !currentCharacterId.isEmpty else { return }
@@ -1029,7 +1086,7 @@ struct ContentView: View {
         URLSession.shared.dataTask(with: req) { data, _, _ in
             guard let data = data, let rows = try? JSONDecoder().decode([ConversationRow].self, from: data) else { return }
             let mapped: [ChatMessage] = rows.reversed().map { row in
-                ChatMessage(kind: .text(row.message), isAgent: row.is_agent)
+                parseMessageToChatMessage(row.message, isAgent: row.is_agent)
             }
             DispatchQueue.main.async {
                 withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
@@ -1148,15 +1205,23 @@ struct ContentView: View {
                         ForEach(Array(historyRows.enumerated()), id: \.element.id) { pair in
                             let r = pair.element
                             HStack(alignment: .bottom, spacing: 0) {
-                                ChatMessageBubble(
-                                    message: ChatMessage(kind: .text(r.message), isAgent: r.is_agent),
+                                    ChatMessageBubble(
+                                        message: parseMessageToChatMessage(r.message, isAgent: r.is_agent),
                                     playbackProgress: 0,
                                     isPlaying: false,
                                     onPlayPause: {},
                                     lineLimit: nil,
                                     alignAgentTrailing: true
                                 )
-                                .onTapGesture { toggleHistoryTimestamp(r.id) }
+                                .onTapGesture {
+                                    if case .media(let url, let thumbnail) = parseMessageToChatMessage(r.message, isAgent: r.is_agent).kind {
+                                        triggerHaptic(.light)
+                                        chatMediaLightboxURL = url
+                                        chatMediaLightboxThumbnail = thumbnail
+                                    } else {
+                                        toggleHistoryTimestamp(r.id)
+                                    }
+                                }
                                 .frame(maxWidth: .infinity, alignment: r.is_agent ? .trailing : .leading)
                             }
                             .id(r.id)
@@ -1370,6 +1435,7 @@ private struct LegalSheetView: View {
                 }
                 .padding(18)
             }
+            .scrollIndicators(.hidden)
             .background(Color.black.ignoresSafeArea())
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)

@@ -113,45 +113,27 @@ struct OnboardingView: View {
             onModelReady()
             if !ageVerified18 { showAgeConfirm = true }
         }
-        .sheet(isPresented: $showAgeConfirm) {
-            VStack(spacing: 18) {
-                Text("Are you 18 or older?")
-                    .font(.title2.bold())
-                    .foregroundStyle(.white)
-                    .padding(.top, 8)
-                Text("You must confirm you are 18+ to use this app.")
-                    .foregroundStyle(.white.opacity(0.8))
-                    .multilineTextAlignment(.center)
-                    .padding(.bottom, 8)
-
-                Button(action: { ageVerified18 = true; showAgeConfirm = false }) {
-                    Text("Yes, I am 18+")
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.white.opacity(0.14))
-                        .cornerRadius(12)
-                        .foregroundStyle(.white)
-                }
-
-                Button(action: { showAgeConfirm = false; showAgeBlocked = true }) {
-                    Text("I'm under 18")
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .foregroundStyle(.gray)
-                }
-                .padding(.bottom, 4)
+        .alert("Are you 18 or older?", isPresented: $showAgeConfirm) {
+            Button("Yes, I am 18+") {
+                ageVerified18 = true
             }
-            .padding(24)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-            .background(Color.black.ignoresSafeArea())
-            .interactiveDismissDisabled(true)
-            .preferredColorScheme(.dark)
+            Button("I'm under 18", role: .cancel) {
+                showAgeBlocked = true
+                // Re-show the age confirmation after the blocked alert
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    showAgeConfirm = true
+                }
+            }
+        } message: {
+            Text("You must confirm you are 18+ to use this app.")
         }
-        .presentationDetents([.large])
-        .presentationBackground(.black)
-        .presentationDragIndicator(.hidden)
         .alert("Sorry, you must be 18+ to use this app.", isPresented: $showAgeBlocked) {
-            Button("OK", role: .cancel) { }
+            Button("OK", role: .cancel) {
+                // Re-show the age confirmation after acknowledging the blocked message
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    showAgeConfirm = true
+                }
+            }
         }
         // Legal sheets
         .sheet(isPresented: $showTermsSheet) { OnboardingLegalSheetView(title: "Terms of Use", text: OnboardingLegalTextTerms) }
@@ -189,6 +171,7 @@ private struct OnboardingLegalSheetView: View {
                 }
                 .padding(18)
             }
+            .scrollIndicators(.hidden)
             .background(Color.black.ignoresSafeArea())
             .navigationTitle(title)
             .navigationBarTitleDisplayMode(.inline)

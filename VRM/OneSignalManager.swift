@@ -20,6 +20,9 @@ struct CharacterNotificationData {
     let openChat: Bool
 }
 
+// Storage key for pending notification data
+private let pendingNotificationKey = "pendingNotificationCharacterId"
+
 class OneSignalManager: NSObject, OSNotificationLifecycleListener, OSNotificationClickListener, OSPushSubscriptionObserver {
     static let shared = OneSignalManager()
     private let appId = "4e5ce2e7-754e-4a63-857b-4175c92fcbd6"
@@ -55,24 +58,33 @@ class OneSignalManager: NSObject, OSNotificationLifecycleListener, OSNotificatio
         
         // Set up notification handlers
         setupNotificationHandlers()
+        
+        // Note: Launch notifications are handled by onClick callback
+        // When app launches from notification, onClick fires and stores data in UserDefaults
+        // ContentView checks for this data in onAppear
+    }
+    
+    /// Get and clear pending notification character ID
+    static func getPendingNotificationCharacterId() -> String? {
+        let id = UserDefaults.standard.string(forKey: pendingNotificationKey)
+        if id != nil {
+            // Clear it after retrieving
+            UserDefaults.standard.removeObject(forKey: pendingNotificationKey)
+        }
+        return id
     }
     
     /// Register Communication Notification Category for avatar display
     private func registerCommunicationNotificationCategory() {
         let center = UNUserNotificationCenter.current()
         
-        // Create communication category with proper options for avatar display
-        // Use UNNotificationCategoryOptions.hiddenPreviewsShowSubtitle for better display
+        // Create communication category
         let communicationCategory = UNNotificationCategory(
             identifier: "CHARACTER_MESSAGE",
             actions: [],
             intentIdentifiers: [],
-            hiddenPreviewsBodyPlaceholder: "%@",
-            options: [
-                .customDismissAction,
-                .allowAnnouncement,
-                .allowInCarPlay
-            ]
+            hiddenPreviewsBodyPlaceholder: "",
+            options: [.allowAnnouncement, .allowInCarPlay]
         )
         
         // Register the category
@@ -144,7 +156,11 @@ class OneSignalManager: NSObject, OSNotificationLifecycleListener, OSNotificatio
             if let characterId = additionalData["character_id"] as? String,
                let openChat = additionalData["open_chat"] as? String,
                openChat == "true" {
-                // Post notification to open character chat
+                // Store in UserDefaults for cold start scenarios (when ContentView might not be ready)
+                UserDefaults.standard.set(characterId, forKey: pendingNotificationKey)
+                print("OneSignal: Stored notification character ID: \(characterId)")
+                
+                // Post notification to open character chat (works when app is already running)
                 let data = CharacterNotificationData(characterId: characterId, openChat: true)
                 NotificationCenter.default.post(
                     name: .openCharacterChat,

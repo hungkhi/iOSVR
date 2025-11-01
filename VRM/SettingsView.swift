@@ -45,6 +45,7 @@ struct SettingsView: View {
                 .padding(.horizontal, 12)
                 .padding(.vertical, 10)
             }
+            .scrollIndicators(.hidden)
             .navigationTitle("Settings")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) { Button(action: { dismiss() }) { Image(systemName: "xmark") } } }
@@ -359,6 +360,7 @@ private struct LegalTextView: View {
             }
             .padding(18)
         }
+        .scrollIndicators(.hidden)
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar { ToolbarItem(placement: .topBarTrailing) { Button { printDoc() } label: { Image(systemName: "printer") } } }
@@ -408,6 +410,7 @@ private struct FeedbackFormView: View {
             }
             .padding(16)
         }
+        .scrollIndicators(.hidden)
         .navigationTitle(kind == .problem ? "Report a Problem" : "Feature Request")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {

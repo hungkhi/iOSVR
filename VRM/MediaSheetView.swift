@@ -1,7 +1,7 @@
 import SwiftUI
 import AVKit
 // Simple shared cache to keep AVPlayer alive across view lifecycle (prevents black flash)
-private final class PlayerCache {
+final class PlayerCache {
     static let shared = PlayerCache()
     private var map: [String: AVPlayer] = [:]
     private init() {}
@@ -78,6 +78,7 @@ struct MediaSheetView: View {
                             }
                             .padding(12)
                         }
+                        .scrollIndicators(.hidden)
                     }
                 }
             }
@@ -262,35 +263,75 @@ private struct MediaCell: View {
     }
 }
 
-private struct MutedLoopingVideoView: View {
+struct MutedLoopingVideoView: View {
     let urlString: String
     var isMuted: Bool = true
     @State private var player: AVPlayer? = nil
+    @State private var isLoading: Bool = true
+    
     var body: some View {
-        VideoPlayer(player: player)
-            .onAppear {
-                if let url = URL(string: urlString) {
-                    let p = PlayerCache.shared.player(for: url, muted: isMuted)
-                    p.play()
-                    player = p
-                    // Ensure audio plays even with silent switch
-                    let session = AVAudioSession.sharedInstance()
-                    try? session.setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
-                    try? session.setActive(true, options: [])
-                }
+        ZStack {
+            if let player = player {
+                VideoPlayer(player: player)
+                    .onAppear {
+                        player.play()
+                    }
+                    .onDisappear {
+                        player.pause()
+                    }
+            } else {
+                // Show loading state while player is being set up
+                Color.black
+                    .overlay(
+                        ProgressView()
+                            .tint(.white)
+                    )
             }
-            .onChange(of: isMuted) { _, newVal in
-                player?.isMuted = newVal
-                if !newVal {
-                    let session = AVAudioSession.sharedInstance()
-                    try? session.setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
-                    try? session.setActive(true, options: [])
-                }
+        }
+        .onAppear {
+            setupPlayer()
+        }
+        .onChange(of: isMuted) { _, newVal in
+            player?.isMuted = newVal
+            if !newVal {
+                let session = AVAudioSession.sharedInstance()
+                try? session.setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
+                try? session.setActive(true, options: [])
             }
-            .onDisappear {
-                // Keep player cached to avoid black frame when quickly returning
-                player?.pause()
+        }
+        .onDisappear {
+            // Keep player cached to avoid black frame when quickly returning
+            player?.pause()
+        }
+    }
+    
+    private func setupPlayer() {
+        guard let url = URL(string: urlString) else {
+            print("MutedLoopingVideoView: Invalid URL: \(urlString)")
+            isLoading = false
+            return
+        }
+        
+        print("MutedLoopingVideoView: Setting up player for URL: \(urlString)")
+        isLoading = true
+        
+        // Ensure audio session is configured
+        let session = AVAudioSession.sharedInstance()
+        try? session.setCategory(.playback, mode: .moviePlayback, options: [.mixWithOthers])
+        try? session.setActive(true, options: [])
+        
+        // Get or create player
+        let p = PlayerCache.shared.player(for: url, muted: isMuted)
+        p.play()
+        
+        // Set player immediately so VideoPlayer can render
+        DispatchQueue.main.async {
+            self.player = p
+            // Hide loading after a short delay to allow video to start loading
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                self.isLoading = false
             }
+        }
     }
 }
 

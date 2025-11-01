@@ -62,6 +62,7 @@ struct CostumeSheetView: View {
                         .padding(.top, 12)
                         .padding(.bottom, 24)
                     }
+                    .scrollIndicators(.hidden)
                     .background(Color.clear.ignoresSafeArea())
                 }
             }
@@ -156,6 +157,7 @@ struct RoomSheetView: View {
                         .padding(.top, 12)
                         .padding(.bottom, 24)
                     }
+                    .scrollIndicators(.hidden)
                     .background(Color.clear.ignoresSafeArea())
                 }
             }

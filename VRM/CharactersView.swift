@@ -30,6 +30,7 @@ struct CharactersView: View {
                         .padding(.top, 8)
                         .padding(.bottom, 24)
                     }
+                    .scrollIndicators(.hidden)
                 } else if let errorMessage {
                     VStack(spacing: 12) {
                         Text("Failed to load characters")
@@ -76,6 +77,7 @@ struct CharactersView: View {
                         .padding(.top, 8)
                         .padding(.bottom, 24)
                     }
+                    .scrollIndicators(.hidden)
                 }
             }
         }
