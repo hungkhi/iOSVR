@@ -1,5 +1,5 @@
 {
-  "originHash" : "527c85f1efa2fca694251d60c9300609b720929b8ab309c89cef5e8ad285b3c0",
+  "originHash" : "66eb382642e9100870847ed4919865c71558e927965e9607e8eaa6e104a8ebb5",
   "pins" : [
     {
       "identity" : "client-sdk-swift",
@@ -16,7 +16,16 @@
       "location" : "https://github.com/elevenlabs/elevenlabs-swift-sdk.git",
       "state" : {
         "branch" : "main",
-        "revision" : "815d0ae6495c2465c067a81d8b45cc2eb7163168"
+        "revision" : "b1538d522769cce9a23589ae86a53b33423f1e01"
+      }
+    },
+    {
+      "identity" : "onesignal-ios-sdk",
+      "kind" : "remoteSourceControl",
+      "location" : "https://github.com/OneSignal/OneSignal-iOS-SDK",
+      "state" : {
+        "revision" : "47972a48f0bf648706e3ec7f8f837d4b3756f69c",
+        "version" : "5.2.15"
       }
     },
     {
@@ -105,8 +114,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/apple/swift-protobuf.git",
       "state" : {
-        "revision" : "97bb244f7a575a419ebc8f3c2d33f2feb9c8f7f2",
-        "version" : "1.33.1"
+        "revision" : "c169a5744230951031770e27e475ff6eefe51f9d",
+        "version" : "1.33.3"
       }
     },
     {

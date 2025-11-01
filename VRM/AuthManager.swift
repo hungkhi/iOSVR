@@ -30,6 +30,10 @@ class AuthManager: NSObject, ObservableObject {
                 self.session = session
                 self.user = user
                 self.hasRestoredSession = true
+                // Sync user ID with OneSignal if session was restored
+                if let userId = user?.id.uuidString {
+                    OneSignalManager.shared.setExternalUserId(userId)
+                }
             }
         }
     }
@@ -93,6 +97,8 @@ class AuthManager: NSObject, ObservableObject {
             self.session = nil
             self.user = nil
             self.isGuest = false
+            // Clear OneSignal external user ID on logout
+            OneSignalManager.shared.clearExternalUserId()
         } catch {
             self.errorMessage = error.localizedDescription
         }
@@ -138,6 +144,10 @@ extension AuthManager: ASAuthorizationControllerDelegate, ASAuthorizationControl
                     self.session = session
                     self.user = user
                     self.isLoading = false
+                    // Sync user ID with OneSignal for targeted push notifications
+                    if let userId = user?.id.uuidString {
+                        OneSignalManager.shared.setExternalUserId(userId)
+                    }
                 }
             } catch {
                 await MainActor.run {

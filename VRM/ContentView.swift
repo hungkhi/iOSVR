@@ -81,6 +81,8 @@ struct ContentView: View {
     // Display name prompt
     @State private var showNamePrompt: Bool = false
     @State private var pendingDisplayName: String = ""
+    // Notification navigation
+    @State private var pendingCharacterIdFromNotification: String? = nil
     var body: some View {
         NavigationStack {
             if authManager.session == nil && !authManager.isGuest {
@@ -511,6 +513,13 @@ struct ContentView: View {
                 .onReceive(NotificationCenter.default.publisher(for: UIResponder.keyboardWillHideNotification)) { _ in
                     keyboardHeight = 0
                 }
+                // Handle notification clicks to open character chat
+                .onReceive(NotificationCenter.default.publisher(for: .openCharacterChat)) { notification in
+                    guard let userInfo = notification.userInfo,
+                          let data = userInfo["data"] as? CharacterNotificationData,
+                          data.openChat else { return }
+                    handleNotificationCharacterOpen(characterId: data.characterId)
+                }
             }
         }
     }
@@ -606,9 +615,15 @@ struct ContentView: View {
                         self.currentCharacterIndex = 0
                         self.applyCharacter(first)
                     }
-                self.lastCharacterIndex = self.currentCharacterIndex
+                    self.lastCharacterIndex = self.currentCharacterIndex
                     // Preload avatar images for smooth switching
                     prefetchAvatarImages(for: items)
+                    // Handle pending notification character open
+                    if let pendingId = self.pendingCharacterIdFromNotification,
+                       let character = items.first(where: { $0.id == pendingId }) {
+                        self.pendingCharacterIdFromNotification = nil
+                        self.handleNotificationCharacterOpen(characterId: pendingId)
+                    }
                 }
             }
         }.resume()
@@ -1301,6 +1316,27 @@ struct ContentView: View {
     private func muteBgmIfNeeded() {
         guard !autoPlayMusic else { return }
         webViewRef?.evaluateJavaScript("(function(){try{return window.setBgm&&window.setBgm(false);}catch(e){return false}})();")
+    }
+
+    // MARK: - Notification Handling
+    private func handleNotificationCharacterOpen(characterId: String) {
+        // Find the character in allCharacters or fetch if not loaded
+        if let character = allCharacters.first(where: { $0.id == characterId }) {
+            // Switch to the character
+            applyCharacter(character)
+            // Open full chat mode after a brief delay to ensure character is loaded
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                withAnimation(.easeInOut(duration: 0.25)) {
+                    showChatHistoryFullScreen = true
+                    fetchConversationHistory(reset: true)
+                }
+            }
+        } else {
+            // Character not in list yet, fetch characters first
+            fetchCharactersList()
+            // Store pending character ID to open after fetch
+            pendingCharacterIdFromNotification = characterId
+        }
     }
 }
 

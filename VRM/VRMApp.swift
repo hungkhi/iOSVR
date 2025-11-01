@@ -12,6 +12,12 @@ struct VRMApp: App {
     @State private var showSplash: Bool = true
     @State private var modelReady: Bool = false
     @StateObject private var authManager = AuthManager.shared
+    
+    init() {
+        // Initialize OneSignal push notifications
+        OneSignalManager.shared.initialize()
+    }
+    
     var body: some Scene {
         WindowGroup {
             ZStack {
