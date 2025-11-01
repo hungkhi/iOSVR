@@ -37,7 +37,7 @@ struct CostumeSheetView: View {
                             ForEach(items) { item in
                                 Button { let h = UIImpactFeedbackGenerator(style: .medium); h.impactOccurred(); onSelect(item); dismiss() } label: {
                                     VStack(spacing: 8) {
-                                        ZStack {
+                                        ZStack(alignment: .topTrailing) {
                                             RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.06)).aspectRatio(1, contentMode: .fit)
                                             if let t = item.thumbnail, let u = URL(string: t) {
                                                 AsyncImage(url: u) { phase in
@@ -51,6 +51,10 @@ struct CostumeSheetView: View {
                                                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                                                 .aspectRatio(1, contentMode: .fit)
                                             }
+                                            
+                                            // Pro badge
+                                            ProBadge(tier: item.subscriptionTier)
+                                                .padding(8)
                                         }
                                         Text(item.costume_name).font(.footnote).foregroundStyle(.white).lineLimit(1)
                                     }
@@ -83,7 +87,8 @@ struct CostumeSheetView: View {
         // Supabase query
         let query: [URLQueryItem] = [
             URLQueryItem(name: "character_id", value: "eq.\(effectiveId)"),
-            URLQueryItem(name: "select", value: "id,character_id,costume_name,url,thumbnail,model_url")
+            URLQueryItem(name: "select", value: "id,character_id,costume_name,url,thumbnail,model_url,tier,available"),
+            URLQueryItem(name: "available", value: "is.true")
         ]
         guard let request = makeSupabaseRequest(path: "/rest/v1/character_costumes", queryItems: query) else { isLoading = false; errorMessage = "Failed to build Supabase costume query"; return }
         URLSession.shared.dataTask(with: request) { data, response, error in
@@ -91,7 +96,12 @@ struct CostumeSheetView: View {
                 isLoading = false
                 if let error = error { errorMessage = error.localizedDescription; return }
                 guard let data = data else { errorMessage = "No data"; return }
-                do { let decoded = try JSONDecoder().decode([CostumeItem].self, from: data); items = decoded } catch { errorMessage = "Decoding error: \(error.localizedDescription)" }
+                do {
+                    var decoded = try JSONDecoder().decode([CostumeItem].self, from: data)
+                    // Filter by available=true (already filtered by API, but ensure client-side too)
+                    decoded = decoded.filter { $0.isAvailable }
+                    items = decoded
+                } catch { errorMessage = "Decoding error: \(error.localizedDescription)" }
             }
         }.resume()
     }
@@ -132,7 +142,7 @@ struct RoomSheetView: View {
                             ForEach(items) { item in
                                 Button { let h = UIImpactFeedbackGenerator(style: .medium); h.impactOccurred(); onSelect(item); dismiss() } label: {
                                     VStack(spacing: 8) {
-                                        ZStack {
+                                        ZStack(alignment: .topTrailing) {
                                             RoundedRectangle(cornerRadius: 14, style: .continuous).fill(Color.white.opacity(0.06)).aspectRatio(1, contentMode: .fit)
                                             if let t = item.thumbnail, let u = URL(string: t) {
                                                 AsyncImage(url: u) { phase in
@@ -146,6 +156,10 @@ struct RoomSheetView: View {
                                                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                                                 .aspectRatio(1, contentMode: .fit)
                                             }
+                                            
+                                            // Pro badge
+                                            ProBadge(tier: item.subscriptionTier)
+                                                .padding(8)
                                         }
                                         Text(item.name).font(.footnote).foregroundStyle(.white).lineLimit(1)
                                     }
@@ -183,6 +197,8 @@ struct RoomSheetView: View {
                 guard let data = data else { errorMessage = "No data"; return }
                 do {
                     var decoded = try JSONDecoder().decode([RoomItem].self, from: data)
+                    // Filter by available=true
+                    decoded = decoded.filter { $0.isAvailable }
                     // Oldest first by created_at when available
                     decoded.sort { ($0.created_at) < ($1.created_at) }
                     items = decoded

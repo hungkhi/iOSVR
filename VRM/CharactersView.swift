@@ -101,8 +101,9 @@ struct CharactersView: View {
         errorMessage = nil
         characters.removeAll()
         let query: [URLQueryItem] = [
-            URLQueryItem(name: "select", value: "id,name,description,thumbnail_url,base_model_url,agent_elevenlabs_id"),
+            URLQueryItem(name: "select", value: "id,name,description,thumbnail_url,base_model_url,agent_elevenlabs_id,tier,available"),
             URLQueryItem(name: "is_public", value: "is.true"),
+            URLQueryItem(name: "available", value: "is.true"),
             URLQueryItem(name: "order", value: "order.nullsfirst")
         ]
         guard let request = makeSupabaseRequest(path: "/rest/v1/characters", queryItems: query) else {
@@ -116,7 +117,9 @@ struct CharactersView: View {
                 if let error = error { errorMessage = error.localizedDescription; return }
                 guard let data = data else { errorMessage = "No data"; return }
                 do {
-                    let items = try JSONDecoder().decode([CharacterItem].self, from: data)
+                    var items = try JSONDecoder().decode([CharacterItem].self, from: data)
+                    // Filter by available=true (already filtered by API, but ensure client-side too)
+                    items = items.filter { $0.isAvailable }
                     characters = items
                 } catch {
                     errorMessage = "Decoding error: \(error.localizedDescription)"

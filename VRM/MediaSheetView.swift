@@ -28,6 +28,17 @@ struct MediaItem: Identifiable, Decodable {
     let thumbnail: String?
     let character_id: String
     let created_at: String?
+    let tier: String?
+    let available: Bool?
+    
+    var subscriptionTier: SubscriptionTier {
+        guard let tier = tier, let tierEnum = SubscriptionTier(rawValue: tier) else { return .free }
+        return tierEnum
+    }
+    
+    var isAvailable: Bool {
+        available ?? true
+    }
 }
 
 struct MediaSheetView: View {
@@ -37,6 +48,10 @@ struct MediaSheetView: View {
     @State private var errorMessage: String? = nil
     @State private var lightboxIndex: Int? = nil
     @Environment(\.dismiss) private var dismiss
+    @StateObject private var subscriptionManager = SubscriptionManager.shared
+    @State private var showSubscription: Bool = false
+    @State private var subscriptionContentName: String = ""
+    @State private var subscriptionRequiredTier: SubscriptionTier = .pro
 
     private let grid = [
         GridItem(.flexible(), spacing: 12, alignment: .top),
@@ -69,7 +84,16 @@ struct MediaSheetView: View {
                                 ForEach(Array(items.enumerated()), id: \.element.id) { pair in
                                     let idx = pair.offset
                                     let item = pair.element
-                                    Button(action: { lightboxIndex = idx }) {
+                                    Button(action: {
+                                        // Check subscription access
+                                        if !subscriptionManager.hasAccess(to: item.subscriptionTier) {
+                                            subscriptionContentName = "Media \(idx + 1)"
+                                            subscriptionRequiredTier = item.subscriptionTier
+                                            showSubscription = true
+                                        } else {
+                                            lightboxIndex = idx
+                                        }
+                                    }) {
                                         MediaCell(item: item)
                                     }
                                     .buttonStyle(.plain)
@@ -91,6 +115,14 @@ struct MediaSheetView: View {
             }
         }
         .onAppear { if items.isEmpty { load() } }
+        .sheet(isPresented: $showSubscription) {
+            SubscriptionView(
+                contentName: subscriptionContentName,
+                contentType: .media,
+                requiredTier: subscriptionRequiredTier
+            )
+            .preferredColorScheme(.dark)
+        }
         .fullScreenCover(isPresented: Binding(get: { lightboxIndex != nil }, set: { if !$0 { lightboxIndex = nil } })) {
             MediaLightboxPager(items: items, startIndex: lightboxIndex ?? 0) { lightboxIndex = nil }
                 .preferredColorScheme(.dark)
@@ -105,7 +137,8 @@ struct MediaSheetView: View {
         let effectiveId = characterId
         let query: [URLQueryItem] = [
             URLQueryItem(name: "character_id", value: "eq.\(effectiveId)"),
-            URLQueryItem(name: "select", value: "id,url,thumbnail,character_id,created_at"),
+            URLQueryItem(name: "select", value: "id,url,thumbnail,character_id,created_at,tier,available"),
+            URLQueryItem(name: "available", value: "is.true"),
             URLQueryItem(name: "order", value: "created_at.asc")
         ]
         guard let request = makeSupabaseRequest(path: "/rest/v1/medias", queryItems: query) else { isLoading = false; errorMessage = "Failed to build Supabase media query"; return }
@@ -115,7 +148,9 @@ struct MediaSheetView: View {
                 if let error { errorMessage = error.localizedDescription; return }
                 guard let data else { errorMessage = "No data"; return }
                 do {
-                    let decoded = try JSONDecoder().decode([MediaItem].self, from: data)
+                    var decoded = try JSONDecoder().decode([MediaItem].self, from: data)
+                    // Filter by available=true (already filtered by API, but ensure client-side too)
+                    decoded = decoded.filter { $0.isAvailable }
                     items = decoded
                     prefetch(items: decoded)
                 } catch {
@@ -171,6 +206,7 @@ private struct MediaCell: View {
     @State private var aspect: CGFloat = 0.8
     @State private var player: AVPlayer? = nil
     @State private var isReady: Bool = false
+    
     var body: some View {
         ZStack {
             if item.url.lowercased().hasSuffix(".mp4") || item.url.lowercased().contains("video") {
@@ -211,10 +247,16 @@ private struct MediaCell: View {
         .contentShape(Rectangle())
         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
         .overlay(
-            Group {
-                if isReady {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(Color.white.opacity(0.06), lineWidth: 1)
+            ZStack(alignment: .topTrailing) {
+                // Pro badge
+                ProBadge(tier: item.subscriptionTier)
+                    .padding(8)
+                
+                Group {
+                    if isReady {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(Color.white.opacity(0.06), lineWidth: 1)
+                    }
                 }
             }
         )

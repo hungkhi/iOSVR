@@ -49,6 +49,21 @@ func setSupabaseAuthHeaders(_ request: inout URLRequest) {
     if let cid = ensureClientId() { request.setValue(cid, forHTTPHeaderField: "X-Client-Id") }
 }
 
+// MARK: - Subscription Tiers
+enum SubscriptionTier: String, Codable, CaseIterable {
+    case free = "free"
+    case pro = "pro"
+    case unlimited = "unlimited"
+    
+    var displayName: String {
+        switch self {
+        case .free: return "Free"
+        case .pro: return "Pro"
+        case .unlimited: return "Unlimited"
+        }
+    }
+}
+
 // MARK: - Character API Models
 struct CharacterItem: Identifiable, Decodable, Hashable {
     let id: String
@@ -58,6 +73,17 @@ struct CharacterItem: Identifiable, Decodable, Hashable {
     let avatar: String?
     let base_model_url: String?
     let agent_elevenlabs_id: String?
+    let tier: String?
+    let available: Bool?
+    
+    var subscriptionTier: SubscriptionTier {
+        guard let tier = tier, let tierEnum = SubscriptionTier(rawValue: tier) else { return .free }
+        return tierEnum
+    }
+    
+    var isAvailable: Bool {
+        available ?? true
+    }
 }
 
 // Costume from API
@@ -68,6 +94,17 @@ struct CostumeItem: Identifiable, Decodable, Hashable {
     let url: String
     let thumbnail: String?
     let model_url: String?
+    let tier: String?
+    let available: Bool?
+    
+    var subscriptionTier: SubscriptionTier {
+        guard let tier = tier, let tierEnum = SubscriptionTier(rawValue: tier) else { return .free }
+        return tierEnum
+    }
+    
+    var isAvailable: Bool {
+        available ?? true
+    }
 }
 
 // Room from API
@@ -78,6 +115,17 @@ struct RoomItem: Identifiable, Decodable, Hashable {
     let image: String
     let created_at: String
     let `public`: Bool
+    let tier: String?
+    let available: Bool?
+    
+    var subscriptionTier: SubscriptionTier {
+        guard let tier = tier, let tierEnum = SubscriptionTier(rawValue: tier) else { return .free }
+        return tierEnum
+    }
+    
+    var isAvailable: Bool {
+        available ?? true
+    }
 }
 
 

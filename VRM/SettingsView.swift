@@ -101,22 +101,44 @@ struct SettingsView: View {
         .buttonStyle(.plain)
     }
 
+    @StateObject private var subscriptionManager = SubscriptionManager.shared
+    @State private var showSubscription: Bool = false
+    
     private var subscriptionCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Subscription").foregroundStyle(.white.opacity(0.9)).font(.headline)
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
-                    Text("SuperGrok").font(.headline).foregroundStyle(.white)
-                    Text("Upgrade for higher limits").font(.subheadline).foregroundStyle(.white.opacity(0.9))
+                    HStack(spacing: 8) {
+                        Text(subscriptionManager.currentTier.displayName)
+                            .font(.headline)
+                            .foregroundStyle(.white)
+                        if subscriptionManager.currentTier != .free {
+                            ProBadge(tier: subscriptionManager.currentTier)
+                        }
+                    }
+                    Text(subscriptionManager.currentTier == .free ? "Upgrade to unlock premium content" : "Active subscription")
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.9))
                 }
                 Spacer()
-                Button("Upgrade") {}
-                    .padding(.horizontal, 14).padding(.vertical, 8)
-                    .background(Color.white.opacity(0.18))
-                    .cornerRadius(10)
+                Button(subscriptionManager.currentTier == .free ? "Upgrade" : "Manage") {
+                    showSubscription = true
+                }
+                .padding(.horizontal, 14).padding(.vertical, 8)
+                .background(Color.white.opacity(0.18))
+                .cornerRadius(10)
             }
             .padding(16)
             .background(RoundedRectangle(cornerRadius: 16, style: .continuous).fill(Color.blue.opacity(0.35)))
+        }
+        .sheet(isPresented: $showSubscription) {
+            SubscriptionView(
+                contentName: "Premium Features",
+                contentType: .character,
+                requiredTier: subscriptionManager.currentTier == .free ? .pro : subscriptionManager.currentTier
+            )
+            .preferredColorScheme(.dark)
         }
     }
 
@@ -151,7 +173,7 @@ struct SettingsView: View {
 
     private var legalSection: some View {
         settingsGroup(title: "") {
-            NavigationLink(destination: LegalTextView(title: "Terms of Use", text: LegalText.terms)) { rowContent(icon: "doc.text", title: "Terms of Use") }
+            NavigationLink(destination: LegalTextView(title: "Terms of Service", text: LegalText.terms)) { rowContent(icon: "doc.text", title: "Terms of Service") }
             NavigationLink(destination: LegalTextView(title: "Privacy Policy", text: LegalText.privacy)) { rowContent(icon: "lock.shield", title: "Privacy Policy") }
         }
     }
@@ -237,107 +259,211 @@ struct SettingsView: View {
     }
 }
 
+// MARK: - Legal Texts Helper
+private func loadLegalText(from filename: String) -> String {
+    // Try to load from bundle first
+    if let url = Bundle.main.url(forResource: filename, withExtension: "md"),
+       let content = try? String(contentsOf: url, encoding: .utf8) {
+        return content
+    }
+    // Fallback to embedded content
+    return filename == "TermsOfService" ? LegalText.termsEmbedded : LegalText.privacyEmbedded
+}
+
 // MARK: - Legal Texts
 private enum LegalText {
-    static let terms = """
-    # Terms of Use
-    _Last updated: October 30, 2025_
+    static let termsEmbedded = """
+# TERMS OF SERVICE – VIVIVI
 
-    Welcome to VRM. These Terms explain your rights and responsibilities when using the app. Please read them carefully.
+**Last Updated: 1 November 2025**
 
-    ---
-    ## Quick summary
-    - You get a personal, revocable license to use the app.
-    - You’re responsible for content you load or share.
-    - Play nice: no abuse, spam, or breaking the law.
-    - We may integrate third‑party services; their rules apply too.
-    - The app is provided “as is,” with no guarantees.
+## 1. Acceptance of Terms
 
-    ---
-    ## 1. Eligibility
-    You must be at least 13 (or older if your local law requires). If you are under the age of majority, use the app only with a parent/guardian’s consent.
+By downloading, accessing, or using VIVIVI ("the App", "we", "us", "our"), you agree to be bound by these Terms of Service ("Terms"). If you do not agree, do not use the App.
 
-    ## 2. License & restrictions
-    We grant you a limited, personal, non‑exclusive, non‑transferable, revocable license to use the app. You may not reverse‑engineer, copy, resell, or misuse the app except where allowed by law.
+## 2. Eligibility
 
-    ## 3. Your content
-    You’re responsible for any models, media, or text you load or share. Only use content you have the right to use. Don’t upload anything illegal, harmful, or that infringes others’ rights.
+You must be at least 18 years of age to use VIVIVI.
 
-    ## 4. Acceptable use
-    Don’t attempt to disrupt the app, bypass limits, harass others, scrape data without permission, or violate applicable laws.
+By using the App, you certify that you meet the legal age required in your country or region to access AI companion or mature-themed content.
 
-    ## 5. Third‑party services
-    The app may rely on outside services (e.g., hosting, speech, analytics). Those are governed by their own terms and privacy policies.
+## 3. Description of Service
 
-    ## 6. Ownership
-    We and our licensors own all rights in the app (excluding your content). Trademarks and logos belong to their owners.
+VIVIVI provides:
 
-    ## 7. Changes & updates
-    We may update features and these Terms. We’ll give reasonable notice of material changes, and continuing to use the app means you accept them.
+- 3D AI-powered companion characters for entertainment and social interaction
+- Real-time AI chat and voice call conversations
+- Character customization, outfits, dancing, media creation, and interactive environments
 
-    ## 8. Termination
-    We may suspend or terminate access if you violate these Terms or the law. When terminated, your license ends and you must stop using the app.
+All characters and interactions are fictional and for entertainment purposes only. No real person is represented or implied.
 
-    ## 9. Disclaimers
-    THE APP IS PROVIDED “AS IS” AND “AS AVAILABLE.” TO THE FULLEST EXTENT PERMITTED BY LAW, WE DISCLAIM ALL WARRANTIES (EXPRESS OR IMPLIED), INCLUDING MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON‑INFRINGEMENT.
+## 4. User Conduct
 
-    ## 10. Limitation of liability
-    TO THE FULLEST EXTENT PERMITTED BY LAW, WE ARE NOT LIABLE FOR INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY, OR PUNITIVE DAMAGES, OR ANY LOSS OF DATA, PROFITS, OR GOODWILL. OUR TOTAL LIABILITY FOR ANY CLAIM WILL NOT EXCEED WHAT YOU PAID FOR THE APP IN THE PREVIOUS 12 MONTHS (OR USD $0 IF NONE).
+You agree not to:
 
-    ## 11. Indemnity
-    You agree to defend and hold us harmless from claims arising out of your misuse of the app or breach of these Terms.
+- Use the App for unlawful, harmful, or abusive purposes
+- Exploit, harass, threaten, or engage in inappropriate behavior toward any in-app characters or other users
+- Upload harmful, explicit, hateful, violent, or discriminatory content
+- Interfere with the App's functionality, security, or servers
 
-    ## 12. Governing law
-    These Terms are governed by the laws of your place of residence, unless local law requires otherwise. Disputes will be resolved in courts with jurisdiction where you live.
+Violations may result in warnings, suspension, or permanent termination without refund.
 
-    ## 13. Contact
-    Questions? Open the app’s Settings and choose Support.
-    """
-    static let privacy = """
-    # Privacy Policy
-    _Last updated: October 30, 2025_
+## 5. In-App Purchases & Subscriptions
 
-    We care about your privacy. This Policy explains what we collect, why we collect it, and how you can control it.
+Some VIVIVI features may require payment (one-time purchases or subscriptions).
 
-    ---
-    ## What we collect
-    - **Account info** (if you sign in): identifiers and basic profile details like email and display name.
-    - **On‑device preferences**: things like haptics, auto‑play music, and auto‑enter talking mode (stored using system storage on your device).
-    - **Diagnostics**: crash reports and performance signals that help us keep the app reliable.
-    - **Content sources**: when you load models/backgrounds from URLs, those assets are fetched directly from the hosts you choose.
+- Payments and subscriptions are processed through the Apple App Store / Google Play Store, based on your device.
+- Subscription fees renew automatically unless canceled at least 24 hours before the renewal date via your store account settings.
+- Refunds follow the App Store / Google Play refund policies and are not issued directly by VIVIVI unless required by law.
 
-    ## How we use it
-    - Provide and improve the app’s features
-    - Remember your preferences
-    - Communicate important updates or respond to support requests
-    - Maintain safety, security, and legal compliance
+## 6. Intellectual Property
 
-    ## Sharing
-    We do not sell your data. We may share limited information with trusted providers that host infrastructure, speech/voice, or analytics for us—strictly to deliver the service and under confidentiality obligations.
+All content, including characters, designs, graphics, animations, audio, code, and AI systems, are owned by or licensed to VIVIVI. You may not copy, distribute, modify, sell, or reproduce any part of the App.
 
-    ## Retention
-    - Account‑linked data is retained while needed to operate the app or meet legal requirements.
-    - On‑device preferences stay on your device until you reset them or uninstall the app.
+## 7. User-Generated Content
 
-    ## Your choices
-    - Change settings anytime in the app.
-    - If supported, delete your account via Settings → Edit profile → Delete Account (subscriptions are cancelled and cannot be recovered).
+If the App allows you to upload or generate content (e.g., chat, voice, images, media):
 
-    ## Security
-    We use reasonable safeguards, but no system is perfectly secure. Please use strong device security.
+- You retain ownership of the content you create.
+- You grant us a worldwide, non-exclusive, royalty-free license to store, process, display, and use such content to operate and improve VIVIVI.
+- You must have the legal right to any content you upload.
+- We reserve the right to remove content that violates these Terms or legal requirements.
 
-    ## Children
-    If you’re under the legal age in your region, use the app only with parental consent and supervision.
+## 8. AI Interaction Disclaimer
 
-    ## International transfers
-    Data may be processed in other countries. We take steps to protect it appropriately.
+VIVIVI uses artificial intelligence to generate responses, voices, and character behaviors.
 
-    ## Changes
-    We may update this Policy; continued use means you accept the new version. For important changes, we’ll provide reasonable notice.
+Responses may sometimes be inaccurate, fictional, or unexpected. Do not rely on AI-generated content for real-life professional, medical, legal, or financial decisions.
 
-    ## Contact
-    For privacy questions, use the Support option in Settings.
-    """
+## 9. Well-Being and Responsible Use
+
+VIVIVI is intended for entertainment and emotional companionship, not as a substitute for real-world relationships, therapy, or mental-health services. If you experience distress or emotional dependency, seek support from qualified professionals.
+
+## 10. Termination
+
+We may suspend or terminate your access to the App at our discretion to protect users, maintain security, enforce policies, or comply with legal requirements.
+
+## 11. Limitation of Liability
+
+To the fullest extent permitted by law, VIVIVI is provided "as is" and "as available". We are not liable for:
+
+- Damages resulting from App use or inability to use the App
+- AI-generated content or third-party services
+- Loss of data or interruptions beyond our reasonable control
+
+Your use of the App is at your own risk.
+
+## 12. Changes to Terms
+
+We may update these Terms from time to time. Continued use after updates means you accept the revised Terms. We will notify users of material changes when required by law.
+
+## 13. Contact
+
+For questions or concerns regarding these Terms, contact:
+
+**Email:** arthurbijan@gmail.com
+"""
+    
+    static let privacyEmbedded = """
+# PRIVACY POLICY – VIVIVI
+
+**Last Updated: 1 November 2025**
+
+## 1. Introduction
+
+This Privacy Policy explains how VIVIVI ("we", "us", "our") collects, uses, and protects your data when you use the App. By using VIVIVI, you agree to this Policy.
+
+## 2. Information We Collect
+
+### A. Information You Provide
+
+- Account information (e.g., username, email, age verification)
+- Chat messages, voice recordings, or interactions with AI
+- Profile settings, preferences, and character customization data
+- Media or files you upload voluntarily
+
+### B. Automatically Collected Data
+
+- Device information (model, OS version, IP address, language)
+- App usage statistics and interaction logs
+- Crash analytics, diagnostics, and performance data
+
+### C. Permissions & Optional Data
+
+VIVIVI may ask for permission to access:
+
+- Microphone (for voice calls)
+- Photos or storage (to save or upload media)
+
+You may decline permissions, but some features may not function.
+
+VIVIVI does not collect biometric or sensitive health data.
+
+## 3. How We Use Your Data
+
+We use data to:
+
+- Provide and improve app features and AI interactions
+- Personalize character responses, environments, and user experience
+- Process purchases, subscriptions, and customer support
+- Ensure security, prevent abuse, and enforce policies
+- Improve AI models (data may be anonymized when used for training)
+
+We do not sell your personal data.
+
+## 4. Data Sharing
+
+We may share information only with:
+
+- Trusted service providers (hosting, analytics, AI processing, payment systems)
+- Authorities if required by law, safety, or legal obligations
+
+We do not share your data with advertisers for targeted ad sales.
+
+## 5. Data Storage & Security
+
+- Data may be stored on encrypted, secure cloud servers.
+- We use reasonable administrative, technical, and physical safeguards to protect data.
+- No method of data transmission or storage is fully secure, and we cannot guarantee absolute security.
+
+## 6. Your Rights
+
+Depending on your region, you may request to:
+
+- Access, correct, or update your data
+- Request data deletion or account removal
+- Withdraw consent or restrict certain data uses
+- Request a copy (export) of your data
+
+Please contact us with your request.
+
+## 7. Children's Privacy
+
+VIVIVI is not intended for individuals under 18.
+
+We do not knowingly collect data from minors. If such data is discovered, we will delete it promptly.
+
+## 8. Cookies & Tracking Technologies
+
+We may use cookies or similar technologies to improve experience and functionality. You may disable cookies in device or browser settings, but some features may not work correctly.
+
+## 9. Third-Party Services
+
+VIVIVI may contain links or integrations with third-party services (e.g., Apple, Google, analytics platforms). Their privacy practices are governed by their respective Privacy Policies.
+
+## 10. Changes to This Policy
+
+We may update this Privacy Policy periodically. Continued use after changes indicates acceptance of the updated Policy. Users will be notified when legally required.
+
+## 11. Contact
+
+For privacy inquiries or data requests, contact:
+
+**Email:** arthurbijan@gmail.com
+"""
+    
+    static var terms: String { loadLegalText(from: "TermsOfService") }
+    static var privacy: String { loadLegalText(from: "PrivacyPolicy") }
 }
 
 private struct LegalTextView: View {
@@ -345,20 +471,9 @@ private struct LegalTextView: View {
     let text: String
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 10) {
-                if let attr = try? AttributedString(markdown: text) {
-                    Text(attr)
-                        .foregroundStyle(.white)
-                        .lineSpacing(6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                } else {
-                    Text(text)
-                        .foregroundStyle(.white)
-                        .lineSpacing(6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-            }
-            .padding(18)
+            BeautifiedMarkdownView(markdown: text)
+                .padding(.horizontal, 20)
+                .padding(.vertical, 18)
         }
         .scrollIndicators(.hidden)
         .navigationTitle(title)

@@ -35,16 +35,24 @@ struct CharacterCardView: View {
                 } else {
                     Color.white.opacity(0.06)
                 }
-                Text("18+")
-                    .font(.system(size: 12, weight: .bold))
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 5)
-                    .background(Color.black.opacity(0.35))
-                    .foregroundStyle(.white)
-                    .clipShape(Capsule())
-                    // Position badge away from edges; slightly higher and snapped to right
-                    .padding(.trailing, contentPadding + 24)
-                    .padding(.top, contentPadding - 4)
+                
+                // Badges in top right
+                HStack(spacing: 6) {
+                    // Pro badge
+                    ProBadge(tier: item.subscriptionTier)
+                    
+                    // 18+ badge
+                    Text("18+")
+                        .font(.system(size: 12, weight: .bold))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Color.black.opacity(0.35))
+                        .foregroundStyle(.white)
+                        .clipShape(Capsule())
+                }
+                // Position badges away from edges; slightly higher and snapped to right
+                .padding(.trailing, contentPadding + 24)
+                .padding(.top, contentPadding - 4)
             }
 
             // Gradient and text

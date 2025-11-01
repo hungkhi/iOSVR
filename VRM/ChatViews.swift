@@ -22,6 +22,7 @@ struct ChatMessageBubble: View {
     let onPlayPause: () -> Void
     var lineLimit: Int? = nil
     var alignAgentTrailing: Bool = false
+    var showFullMediaPreview: Bool = false // If true, show full media preview; if false, show text line
     
     private var backgroundColor: Color {
         // Agent messages: stronger pink; User messages: translucent black
@@ -44,7 +45,7 @@ struct ChatMessageBubble: View {
             case .voice(let url, let duration, let samples):
                 voiceMessageView(url: url, duration: duration, samples: samples)
             case .media(let url, let thumbnail):
-                mediaMessageView(url: url, thumbnail: thumbnail)
+                mediaMessageView(url: url, thumbnail: thumbnail, showFullPreview: showFullMediaPreview)
             }
         }
     }
@@ -110,24 +111,42 @@ struct ChatMessageBubble: View {
         }
     }
     
-    private func mediaMessageView(url: String, thumbnail: String?) -> some View {
-        let isVideo = url.lowercased().hasSuffix(".mp4") || url.lowercased().hasSuffix(".mov") || url.lowercased().contains("video")
-        let bubbleWidth = min(maxWidth, 200)
-        let mediaURL = URL(string: url)
+    private func mediaMessageView(url: String, thumbnail: String?, showFullPreview: Bool) -> some View {
+        // Ensure URL is not empty
+        guard !url.isEmpty else {
+            return AnyView(
+                textMessageView(text: "Invalid media")
+            )
+        }
         
-        return Group {
+        let isVideo = url.lowercased().hasSuffix(".mp4") || 
+                     url.lowercased().hasSuffix(".mov") || 
+                     url.lowercased().hasSuffix(".avi") ||
+                     url.lowercased().hasSuffix(".mkv") ||
+                     url.lowercased().hasSuffix(".webm") ||
+                     url.lowercased().contains("video")
+        
+        // If in full chat mode, show full preview; otherwise show text line
+        if showFullPreview {
+            // Full preview mode (for full chat)
+            let bubbleWidth = min(maxWidth, 200)
+            let mediaURL = URL(string: url)
+            
             if isVideo {
                 // For videos, show placeholder with play icon that generates thumbnail
-                ChatMediaPlaceholderView(
-                    isVideo: true,
-                    videoURL: url,
-                    bubbleWidth: bubbleWidth,
-                    backgroundColor: backgroundColor,
-                    strokeColor: strokeColor
+                return AnyView(
+                    ChatMediaPlaceholderView(
+                        isVideo: true,
+                        videoURL: url,
+                        bubbleWidth: bubbleWidth,
+                        backgroundColor: backgroundColor,
+                        strokeColor: strokeColor
+                    )
+                    .frame(maxWidth: maxWidth, alignment: (alignAgentTrailing && message.isAgent) ? .trailing : .leading)
                 )
             } else if let imgURL = mediaURL {
                 // For images, display directly
-                ZStack {
+                return AnyView(
                     AsyncImage(url: imgURL) { phase in
                         switch phase {
                         case .success(let image):
@@ -152,36 +171,60 @@ struct ChatMessageBubble: View {
                             backgroundColor
                         }
                     }
-                }
-                .frame(width: bubbleWidth, height: bubbleWidth)
-                .background(backgroundColor)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .stroke(strokeColor, lineWidth: 1)
-                )
-                .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 1)
-                .onAppear {
-                    // Debug: Log the image URL being loaded
-                    debugPrint("ChatViews: Loading image from URL: \(url)")
-                }
-            } else {
-                // Invalid URL
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(backgroundColor)
                     .frame(width: bubbleWidth, height: bubbleWidth)
-                    .overlay(
-                        Image(systemName: "exclamationmark.triangle")
-                            .font(.system(size: 24))
-                            .foregroundStyle(.white.opacity(0.5))
-                    )
+                    .background(backgroundColor)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 16, style: .continuous)
                             .stroke(strokeColor, lineWidth: 1)
                     )
+                    .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 1)
+                    .frame(maxWidth: maxWidth, alignment: (alignAgentTrailing && message.isAgent) ? .trailing : .leading)
+                )
+            } else {
+                // Invalid URL format
+                return AnyView(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(backgroundColor)
+                        .frame(width: bubbleWidth, height: bubbleWidth)
+                        .overlay(
+                            Image(systemName: "exclamationmark.triangle")
+                                .font(.system(size: 24))
+                                .foregroundStyle(.white.opacity(0.5))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(strokeColor, lineWidth: 1)
+                        )
+                        .frame(maxWidth: maxWidth, alignment: (alignAgentTrailing && message.isAgent) ? .trailing : .leading)
+                )
             }
+        } else {
+            // Text line mode (for overlay/homepage)
+            let displayText = isVideo ? "Show Video" : "Show Image"
+            let iconName = isVideo ? "play.circle.fill" : "photo"
+            
+            return AnyView(
+                HStack(spacing: 8) {
+                    Image(systemName: iconName)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundStyle(.white)
+                    Text(displayText)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                }
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(backgroundColor)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .stroke(strokeColor, lineWidth: 1)
+                )
+                .shadow(color: .black.opacity(0.25), radius: 3, x: 0, y: 1)
+                .frame(maxWidth: maxWidth, alignment: (alignAgentTrailing && message.isAgent) ? .trailing : .leading)
+            )
         }
-        .frame(maxWidth: maxWidth, alignment: (alignAgentTrailing && message.isAgent) ? .trailing : .leading)
     }
 }
 

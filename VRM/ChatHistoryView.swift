@@ -46,14 +46,21 @@ struct ChatHistoryView: View {
                                 }
                                 HStack(alignment: .bottom, spacing: 0) {
                                     ChatMessageBubble(
-                                        message: ChatMessage(kind: .text(r.message), isAgent: r.is_agent),
+                                        message: parseMessageToChatMessage(r.message, isAgent: r.is_agent),
                                         playbackProgress: 0,
                                         isPlaying: false,
                                         onPlayPause: {},
                                         lineLimit: nil,
-                                        alignAgentTrailing: true
+                                        alignAgentTrailing: true,
+                                        showFullMediaPreview: true
                                     )
-                                    .onTapGesture { toggleTime(r.id) }
+                                    .onTapGesture {
+                                        if case .media(let url, let thumbnail) = parseMessageToChatMessage(r.message, isAgent: r.is_agent).kind {
+                                            // Handle media tap - could open lightbox here if needed
+                                        } else {
+                                            toggleTime(r.id)
+                                        }
+                                    }
                                     .frame(maxWidth: .infinity, alignment: r.is_agent ? .trailing : .leading)
                                 }
                                 .id(r.id)
@@ -219,6 +226,17 @@ struct ChatHistoryView: View {
     private var calendar: Calendar { var c = Calendar.current; c.locale = Locale.current; return c }
     private static let isoParser: ISO8601DateFormatter = ISO8601DateFormatter()
     private func isoNow() -> String { ISO8601DateFormatter().string(from: Date()) }
+    
+    // Helper to parse message string to ChatMessage
+    private func parseMessageToChatMessage(_ message: String, isAgent: Bool) -> ChatMessage {
+        if message.hasPrefix("MEDIA:") {
+            // Simply extract the URL after "MEDIA:" prefix
+            let url = String(message.dropFirst(6)) // Drop "MEDIA:"
+            return ChatMessage(kind: .media(url: url, thumbnail: nil), isAgent: isAgent)
+        } else {
+            return ChatMessage(kind: .text(message), isAgent: isAgent)
+        }
+    }
 }
 
 

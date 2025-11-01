@@ -44,6 +44,11 @@ struct ContentView: View {
     @State private var showMediaSheet: Bool = false
     @State private var currentAgentId: String = ""
     @StateObject private var authManager = AuthManager.shared
+    @StateObject private var subscriptionManager = SubscriptionManager.shared
+    @State private var showSubscription: Bool = false
+    @State private var subscriptionContentName: String = ""
+    @State private var subscriptionContentType: SubscriptionView.ContentType = .character
+    @State private var subscriptionRequiredTier: SubscriptionTier = .pro
     // Synchronize model loading with background changes
     @State private var isModelLoading: Bool = false
     @State private var pendingBackgroundImage: String? = nil
@@ -414,6 +419,15 @@ struct ContentView: View {
                     }
                     .sheet(isPresented: $showCostumeSheet) {
                         CostumeSheetView(characterId: currentCharacterId) { costume in
+                            // Check subscription access
+                            if !subscriptionManager.hasAccess(to: costume.subscriptionTier) {
+                                subscriptionContentName = costume.costume_name
+                                subscriptionContentType = .costume
+                                subscriptionRequiredTier = costume.subscriptionTier
+                                showSubscription = true
+                                return
+                            }
+                            
                             if let directURL = costume.model_url, !directURL.isEmpty {
                                 let escaped = directURL
                                     .replacingOccurrences(of: "\\", with: "\\\\")
@@ -441,6 +455,14 @@ struct ContentView: View {
                     }
                     .sheet(isPresented: $showRoomSheet) {
                         RoomSheetView { room in
+                            // Check subscription access
+                            if !subscriptionManager.hasAccess(to: room.subscriptionTier) {
+                                subscriptionContentName = room.name
+                                subscriptionContentType = .room
+                                subscriptionRequiredTier = room.subscriptionTier
+                                showSubscription = true
+                                return
+                            }
                             // Change background image in HTML
                             let escapedImage = room.image
                                 .replacingOccurrences(of: "\\", with: "\\\\")
@@ -459,6 +481,14 @@ struct ContentView: View {
                             .preferredColorScheme(.dark)
                             .presentationDetents([.fraction(0.35), .large])
                             .presentationBackground(.ultraThinMaterial.opacity(0.2))
+                    }
+                    .sheet(isPresented: $showSubscription) {
+                        SubscriptionView(
+                            contentName: subscriptionContentName,
+                            contentType: subscriptionContentType,
+                            requiredTier: subscriptionRequiredTier
+                        )
+                        .preferredColorScheme(.dark)
                     }
                     .sheet(isPresented: $showSettingsSheet) {
                         SettingsView(authManager: authManager)
@@ -622,15 +652,17 @@ struct ContentView: View {
     private func fetchCharactersList() {
         guard allCharacters.isEmpty else { return }
         let query: [URLQueryItem] = [
-            URLQueryItem(name: "select", value: "id,name,description,thumbnail_url,avatar,base_model_url,agent_elevenlabs_id"),
-            URLQueryItem(name: "is_public", value: "is.true")
+            URLQueryItem(name: "select", value: "id,name,description,thumbnail_url,avatar,base_model_url,agent_elevenlabs_id,tier,available"),
+            URLQueryItem(name: "is_public", value: "is.true"),
+            URLQueryItem(name: "available", value: "is.true")
         ]
         guard let request = makeSupabaseRequest(path: "/rest/v1/characters", queryItems: query) else { return }
         URLSession.shared.dataTask(with: request) { data, _, _ in
             guard let data = data else { return }
             if let items = try? JSONDecoder().decode([CharacterItem].self, from: data) {
                 DispatchQueue.main.async {
-                    self.allCharacters = items
+                    // Filter by available=true (already filtered by API, but ensure client-side too)
+                    self.allCharacters = items.filter { $0.isAvailable }
                     if let idx = items.firstIndex(where: { $0.id == self.currentCharacterId }) {
                         // Sync selection and state to the persisted/current character
                         self.currentCharacterIndex = idx
@@ -801,6 +833,15 @@ struct ContentView: View {
 
     // Add this helper to centralize the update logic
     private func applyCharacter(_ item: CharacterItem) {
+        // Check subscription access
+        if !subscriptionManager.hasAccess(to: item.subscriptionTier) {
+            subscriptionContentName = item.name
+            subscriptionContentType = .character
+            subscriptionRequiredTier = item.subscriptionTier
+            showSubscription = true
+            return
+        }
+        
         currentCharacterId = item.id
         currentCharacterName = item.name
         currentCharacterIndex = allCharacters.firstIndex(where: { $0.id == item.id }) ?? currentCharacterIndex
@@ -1042,27 +1083,13 @@ struct ContentView: View {
     }
     
     // Helper to parse message string to ChatMessage
-    // Format for media: "MEDIA:url:thumbnail" or "MEDIA:url" (if no thumbnail)
-    // Note: URLs can contain colons (e.g., https://), so we split on the last ":" that precedes another URL
+    // Format for media: "MEDIA:url" (only the media URL, no thumbnail)
     private func parseMessageToChatMessage(_ message: String, isAgent: Bool) -> ChatMessage {
         if message.hasPrefix("MEDIA:") {
-            let content = String(message.dropFirst(6)) // Drop "MEDIA:"
-            
-            // Find the last colon that separates URL from thumbnail
-            // The thumbnail (if present) will be a second URL starting with http:// or https://
-            if let lastColonIndex = content.lastIndex(of: ":") {
-                let afterColon = String(content[content.index(after: lastColonIndex)...])
-                
-                // If the part after the last colon looks like a URL (starts with http:// or https://),
-                // then the last colon is the separator between URL and thumbnail
-                if afterColon.hasPrefix("http://") || afterColon.hasPrefix("https://") {
-                    let url = String(content[..<lastColonIndex])
-                    return ChatMessage(kind: .media(url: url, thumbnail: nil), isAgent: isAgent)
-                }
-            }
-            
-            // No thumbnail separator found, or it's part of the URL
-            return ChatMessage(kind: .media(url: content, thumbnail: nil), isAgent: isAgent)
+            // Simply extract the URL after "MEDIA:" prefix
+            // Format is now just "MEDIA:url" (no thumbnail)
+            let url = String(message.dropFirst(6)) // Drop "MEDIA:"
+            return ChatMessage(kind: .media(url: url, thumbnail: nil), isAgent: isAgent)
         } else {
             return ChatMessage(kind: .text(message), isAgent: isAgent)
         }
@@ -1211,7 +1238,8 @@ struct ContentView: View {
                                     isPlaying: false,
                                     onPlayPause: {},
                                     lineLimit: nil,
-                                    alignAgentTrailing: true
+                                    alignAgentTrailing: true,
+                                    showFullMediaPreview: true
                                 )
                                 .onTapGesture {
                                     if case .media(let url, let thumbnail) = parseMessageToChatMessage(r.message, isAgent: r.is_agent).kind {
